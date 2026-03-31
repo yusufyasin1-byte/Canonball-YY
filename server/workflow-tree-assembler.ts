@@ -636,6 +636,37 @@ function smartBracketWrap(val: string): string {
   return `[${trimmed}]`;
 }
 
+function normalizeQuotedLiteral(val: string): string {
+  const trimmed = val.trim();
+  if (!trimmed) return trimmed;
+  if (trimmed.startsWith("&quot;") && trimmed.endsWith("&quot;")) {
+    return `"${trimmed.slice(6, -6)}"`;
+  }
+  return trimmed;
+}
+
+function unwrapQuotedLiteral(val: string): string | null {
+  const normalized = normalizeQuotedLiteral(val);
+  if (/^".*"$/.test(normalized)) {
+    return normalized.slice(1, -1).replace(/""/g, '"');
+  }
+  if (/^'.*'$/.test(normalized)) {
+    return normalized.slice(1, -1).replace(/''/g, "'");
+  }
+  return null;
+}
+
+function normalizeEnumValue(val: string, validValues: string[]): string | null {
+  const trimmed = normalizeQuotedLiteral(val).trim();
+  if (!trimmed) return null;
+  const unwrappedBracket = trimmed.startsWith("[") && trimmed.endsWith("]")
+    ? trimmed.slice(1, -1).trim()
+    : trimmed;
+  const unwrappedLiteral = unwrapQuotedLiteral(unwrappedBracket) ?? unwrappedBracket;
+  const canonical = validValues.find(option => option.toLowerCase() === unwrappedLiteral.toLowerCase());
+  return canonical || null;
+}
+
 export function resolvePropertyValue(value: PropertyValue): string {
   if (isValueIntent(value)) {
     const built = buildExpression(value as ValueIntent);
@@ -780,8 +811,12 @@ export function resolveActivityTemplate(
     const level = getPropString(props, "Level", "level") || "Info";
     const message = getPropString(props, "Message", "message") || displayName;
     let wrappedMessage: string;
-    if (looksLikeStringLiteral(message)) {
-      const escapedLiteral = message.replace(/^"(.*)"$/s, "$1").replace(/"/g, '""');
+    const unwrappedLiteral = unwrapQuotedLiteral(message);
+    if (unwrappedLiteral !== null) {
+      const escapedLiteral = unwrappedLiteral.replace(/"/g, '""');
+      wrappedMessage = `["${escapedLiteral}"]`;
+    } else if (looksLikeStringLiteral(message)) {
+      const escapedLiteral = message.replace(/"/g, '""');
       wrappedMessage = `["${escapedLiteral}"]`;
     } else {
       wrappedMessage = smartBracketWrap(message);
@@ -1340,8 +1375,10 @@ function resolveDynamicTemplate(node: ActivityNode, processType: ProcessType, em
     }
 
     if (!isChildElement) {
-      const lintedAttrValue = lintAndFixVbExpression(effectiveValue);
-      attrParts.push(`${key}="${escapeXml(lintedAttrValue)}"`);
+      const propDef = schema?.activity?.properties?.find((p: any) => p.name === key);
+      const enumLiteral = propDef?.validValues?.length ? normalizeEnumValue(effectiveValue, propDef.validValues) : null;
+      const attrValue = enumLiteral ?? lintAndFixVbExpression(effectiveValue);
+      attrParts.push(`${key}="${escapeXml(attrValue)}"`);
     }
   }
 

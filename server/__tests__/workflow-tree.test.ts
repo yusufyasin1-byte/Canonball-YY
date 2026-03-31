@@ -196,6 +196,31 @@ describe("Workflow Tree Architecture", () => {
       expect(xml).toContain('DisplayName="Log Start"');
     });
 
+    it("wraps quoted LogMessage literals as VB string expressions", () => {
+      const node: ActivityNode = {
+        kind: "activity",
+        template: "LogMessage",
+        displayName: "Bind Point Log",
+        properties: { Level: "Info", Message: '"Bind Action Center task creation for Action Center"' },
+        errorHandling: "none",
+      };
+      const xml = assembleNode(node);
+      expect(xml).toContain('Message="[&quot;Bind Action Center task creation for Action Center&quot;]"');
+    });
+
+    it("keeps enum-valued OpenBrowser BrowserType as a raw enum literal", () => {
+      const node: ActivityNode = {
+        kind: "activity",
+        template: "OpenBrowser",
+        displayName: "Open Browser",
+        properties: { Url: '"https://example.com"', BrowserType: "Chrome" },
+        errorHandling: "none",
+      };
+      const xml = assembleNode(node);
+      expect(xml).toContain('BrowserType="Chrome"');
+      expect(xml).not.toContain('BrowserType="[Chrome]"');
+    });
+
     it("assembles an Assign with type inference from variables", () => {
       const node: ActivityNode = {
         kind: "activity",

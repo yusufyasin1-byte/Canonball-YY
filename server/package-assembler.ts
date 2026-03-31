@@ -1609,70 +1609,54 @@ function extractVariablesFromSDD(sddContent: string): Array<{ name: string; type
 function selectSystemActivity(system: string, description: string): { template: string; displayName: string; properties: Record<string, string> } | null {
   const sysLower = (system || "").toLowerCase();
   const descLower = (description || "").toLowerCase();
+  const makeBindPoint = (displayName: string, message: string) => ({
+    template: "LogMessage",
+    displayName,
+    properties: { Level: "Info", Message: `"${message.replace(/"/g, '""')}"` },
+  });
 
   if (sysLower.includes("google calendar")) {
-    return {
-      template: "LogMessage",
-      displayName: `Calendar Reader Bind Point - ${system}`,
-      properties: { Level: "Info", Message: `"Bind Google Calendar connector for ${system}"` },
-    };
+    return makeBindPoint(`Calendar Reader Bind Point - ${system}`, `Bind Google Calendar connector for ${system}`);
   }
   if (sysLower.includes("google contacts")) {
-    return {
-      template: "LogMessage",
-      displayName: `Contact Resolver Bind Point - ${system}`,
-      properties: { Level: "Info", Message: `"Bind Google Contacts lookup for ${system}"` },
-    };
+    return makeBindPoint(`Contact Resolver Bind Point - ${system}`, `Bind Google Contacts lookup for ${system}`);
   }
   if (sysLower.includes("orchestrator queue")) {
-    return {
-      template: "LogMessage",
-      displayName: `Queue Activity Bind Point - ${system}`,
-      properties: { Level: "Info", Message: `"Implement Orchestrator queue interaction for ${system}"` },
-    };
+    return makeBindPoint(`Queue Activity Bind Point - ${system}`, `Implement Orchestrator queue interaction for ${system}`);
   }
   if (sysLower.includes("genai")) {
-    return {
-      template: "LogMessage",
-      displayName: `GenAI Bind Point - ${system}`,
-      properties: { Level: "Info", Message: `"Bind UiPath GenAI activity for ${system}"` },
-    };
+    return makeBindPoint(`GenAI Bind Point - ${system}`, `Bind UiPath GenAI activity for ${system}`);
   }
   if (sysLower.includes("action center")) {
-    return {
-      template: "LogMessage",
-      displayName: `Action Center Bind Point - ${system}`,
-      properties: { Level: "Info", Message: `"Bind Action Center task creation for ${system}"` },
-    };
+    return makeBindPoint(`Action Center Bind Point - ${system}`, `Bind Action Center task creation for ${system}`);
   }
   if (sysLower.includes("data service")) {
-    return {
-      template: "LogMessage",
-      displayName: `Data Service Bind Point - ${system}`,
-      properties: { Level: "Info", Message: `"Bind Data Service entity write for ${system}"` },
-    };
+    return makeBindPoint(`Data Service Bind Point - ${system}`, `Bind Data Service entity write for ${system}`);
   }
   if (sysLower.includes("gmail")) {
-    return {
-      template: "SendOutlookMailMessage",
-      displayName: `Send Email - ${system}`,
-      properties: { To: '""', Subject: '""', Body: '""' },
-    };
+    return makeBindPoint(`Gmail Delivery Bind Point - ${system}`, `Bind Gmail delivery for ${system}`);
   }
-  if (sysLower.includes("api") || sysLower.includes("rest") || sysLower.includes("web service") || descLower.includes("api call") || descLower.includes("http request")) {
-    return { template: "HttpClient", displayName: `HTTP Request - ${system}`, properties: { Method: "GET", Endpoint: `"https://${system.replace(/\s+/g, "").toLowerCase()}.example.com/api"`, AcceptFormat: "JSON" } };
+  if (
+    sysLower.includes("api") ||
+    sysLower.includes("rest") ||
+    sysLower.includes("web service") ||
+    sysLower.includes("webhook") ||
+    descLower.includes("api call") ||
+    descLower.includes("http request")
+  ) {
+    return makeBindPoint(`HTTP Bind Point - ${system}`, `Bind HTTP or webhook call for ${system}`);
   }
   if (sysLower.includes("excel") || sysLower.includes("spreadsheet")) {
     return { template: "ExcelApplicationScope", displayName: `Open Excel - ${system}`, properties: { WorkbookPath: '"C:\\Data\\Workbook.xlsx"' } };
   }
   if (sysLower.includes("email") || sysLower.includes("outlook") || sysLower.includes("mail")) {
-    return { template: "SendOutlookMailMessage", displayName: `Send Email - ${system}`, properties: { To: '""', Subject: '""', Body: '""' } };
+    return makeBindPoint(`Outbound Communication Bind Point - ${system}`, `Bind outbound email or notification step for ${system}`);
   }
   if (sysLower.includes("sap")) {
     return { template: "TypeInto", displayName: `Type Into SAP - ${system}`, properties: { Text: '""', Target: '{ "type": "selector", "value": "<wnd app=\'saplogon.exe\' />" }' } };
   }
   if (sysLower.includes("browser") || sysLower.includes("web") || sysLower.includes("chrome") || sysLower.includes("portal") || sysLower.includes("website")) {
-    return { template: "OpenBrowser", displayName: `Open Browser - ${system}`, properties: { Url: `"https://${system.replace(/\s+/g, "").toLowerCase()}.example.com"`, BrowserType: "Chrome" } };
+    return makeBindPoint(`Browser Automation Bind Point - ${system}`, `Bind browser-based lookup or navigation for ${system}`);
   }
   if (sysLower.includes("database") || sysLower.includes("sql") || sysLower.includes("db")) {
     return { template: "ExecuteQuery", displayName: `Query Database - ${system}`, properties: { Sql: '"SELECT * FROM table"', ConnectionString: '""' } };
@@ -1732,18 +1716,6 @@ function buildDeterministicScaffold(
     outputType: null,
     errorHandling: "none" as const,
   });
-
-  function suggestDeterministicWorkflowName(node: any): string | null {
-    const text = `${node.name || ""} ${node.description || ""} ${node.system || ""}`.toLowerCase();
-    if (text.includes("calendar")) return "Dispatcher";
-    if (text.includes("queue item") || text.includes("queue")) return "Dispatcher";
-    if (text.includes("contact")) return "ContactResolver";
-    if (text.includes("gmail") || text.includes("send email")) return "EmailSender";
-    if (text.includes("action center") || text.includes("review")) return "ReviewHandler";
-    if (text.includes("data service") || text.includes("audit")) return "AuditPersistence";
-    if (text.includes("genai") || text.includes("compose") || text.includes("message")) return "MessageComposer";
-    return null;
-  }
 
   const namedDecomposition = new Map<string, number[]>();
 
@@ -1897,7 +1869,8 @@ function buildDeterministicScaffold(
       });
 
       if (actionNodes.length > complexNodeThreshold) {
-        const suggestedName = suggestDeterministicWorkflowName(node) || `${node.name.replace(/\s+/g, "_")}_SubWorkflow`;
+        const role = classifyDeterministicWorkflowRole(node);
+        const suggestedName = deterministicWorkflowNameForRole(role, node, 1);
         const existing = namedDecomposition.get(suggestedName) || [];
         existing.push(node.id);
         namedDecomposition.set(suggestedName, existing);
@@ -2005,6 +1978,294 @@ function makeDeterministicInvoke(
     WorkflowFileName: `${workflowName}.xaml`,
     ...argumentsMap,
   });
+}
+
+type DeterministicWorkflowRole =
+  | "intake_dispatcher"
+  | "entity_resolution"
+  | "document_extraction"
+  | "validation_matching"
+  | "communication_drafting"
+  | "review_exception"
+  | "outbound_communication"
+  | "approval_routing"
+  | "persistence_audit"
+  | "generic_step_group";
+
+type DeterministicWorkflowContext = {
+  projectName: string;
+  domainLabel: string;
+  primaryEntityLabel: string;
+  queueName: string;
+};
+
+function slugifyDeterministicSegment(value: string): string {
+  return value
+    .replace(/[^A-Za-z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "")
+    .replace(/_{2,}/g, "_");
+}
+
+function titleCaseDeterministic(value: string): string {
+  return value
+    .split(/[^A-Za-z0-9]+/)
+    .filter(Boolean)
+    .map(part => part.charAt(0).toUpperCase() + part.slice(1).toLowerCase())
+    .join(" ");
+}
+
+function inferPrimaryEntityLabel(projectName: string, processNodes: any[], sddContent?: string): string {
+  const corpus = `${projectName} ${sddContent || ""} ${processNodes.map(node => `${node.name || ""} ${node.description || ""}`).join(" ")}`.toLowerCase();
+  if (/\binvoice\b/.test(corpus)) return "Invoice";
+  if (/\b(po|purchase order)\b/.test(corpus)) return "PurchaseOrder";
+  if (/\bbirthday\b/.test(corpus) || /\brecipient\b/.test(corpus) || /\bcontact\b/.test(corpus)) return "Recipient";
+  if (/\bclaim\b/.test(corpus)) return "Claim";
+  if (/\bemployee\b/.test(corpus)) return "Employee";
+  return "WorkItem";
+}
+
+function inferDomainLabel(projectName: string, processNodes: any[], sddContent?: string): string {
+  const corpus = `${projectName} ${sddContent || ""} ${processNodes.map(node => `${node.name || ""} ${node.system || ""}`).join(" ")}`.toLowerCase();
+  if (/\bbirthday\b/.test(corpus)) return "birthday greetings";
+  if (/\binvoice\b/.test(corpus) || /\bcoupa\b/.test(corpus)) return "invoice processing";
+  if (/\bclaim\b/.test(corpus)) return "claims processing";
+  if (/\bonboarding\b/.test(corpus)) return "employee onboarding";
+  return projectName.replace(/_/g, " ");
+}
+
+function buildDeterministicContext(
+  projectName: string,
+  processNodes: any[],
+  orchestratorArtifacts?: any,
+  sddContent?: string,
+): DeterministicWorkflowContext {
+  return {
+    projectName,
+    domainLabel: inferDomainLabel(projectName, processNodes, sddContent),
+    primaryEntityLabel: inferPrimaryEntityLabel(projectName, processNodes, sddContent),
+    queueName: orchestratorArtifacts?.queues?.[0]?.name || `${projectName}_Queue`,
+  };
+}
+
+function classifyDeterministicWorkflowRole(node: any): DeterministicWorkflowRole {
+  const text = `${node.name || ""} ${node.description || ""} ${node.system || ""}`.toLowerCase();
+  if (/(trigger|ingest|dispatcher|queue|calendar|fetch|create work item|build .*worklist)/.test(text)) return "intake_dispatcher";
+  if (/(audit|persist|data service|history|summary|mark .*progressed)/.test(text)) return "persistence_audit";
+  if (/(review|action center|correct|exception|triage)/.test(text)) return "review_exception";
+  if (/(validate|match|tolerance|reconcile|compare|confidence sufficient)/.test(text)) return "validation_matching";
+  if (/(extract|document understanding|ocr|classif)/.test(text)) return "document_extraction";
+  if (/(contact|lookup|resolve|recipient|directory|preferred email)/.test(text)) return "entity_resolution";
+  if (/(send|notify|email|gmail|mail|post supplier)/.test(text)) return "outbound_communication";
+  if (/(compose|generate|draft|message subject|message body|supplier message)/.test(text)) return "communication_drafting";
+  if (/(approve|approval|route .*approval|rejected|reject invoice|doa)/.test(text)) return "approval_routing";
+  return "generic_step_group";
+}
+
+function deterministicWorkflowNameForRole(role: DeterministicWorkflowRole, firstNode: any, sequence: number): string {
+  const roleNames: Record<DeterministicWorkflowRole, string> = {
+    intake_dispatcher: "IntakeDispatcher",
+    entity_resolution: "EntityResolution",
+    document_extraction: "DocumentExtraction",
+    validation_matching: "ValidationMatching",
+    communication_drafting: "CommunicationDrafting",
+    review_exception: "ReviewAndExceptionHandling",
+    outbound_communication: "OutboundCommunication",
+    approval_routing: "ApprovalRouting",
+    persistence_audit: "AuditAndPersistence",
+    generic_step_group: `${titleCaseDeterministic(firstNode?.name || `StepGroup${sequence}`)}Workflow`,
+  };
+  const base = slugifyDeterministicSegment(roleNames[role] || `Workflow${sequence}`);
+  return sequence > 1 && role !== "generic_step_group" ? `${base}${sequence}` : base;
+}
+
+function buildDeterministicRoleSummary(role: DeterministicWorkflowRole, context: DeterministicWorkflowContext): string {
+  const summaryByRole: Record<DeterministicWorkflowRole, string> = {
+    intake_dispatcher: `Prepare ${context.primaryEntityLabel.toLowerCase()} intake and queue handoff for ${context.domainLabel}`,
+    entity_resolution: `Resolve ${context.primaryEntityLabel.toLowerCase()} reference data and routing inputs`,
+    document_extraction: `Extract structured data needed for ${context.primaryEntityLabel.toLowerCase()} processing`,
+    validation_matching: `Validate ${context.primaryEntityLabel.toLowerCase()} data against documented business rules`,
+    communication_drafting: `Draft communication payloads required by the process`,
+    review_exception: `Handle review, correction, and exception paths`,
+    outbound_communication: `Execute outbound communication or notification bind points`,
+    approval_routing: `Route the ${context.primaryEntityLabel.toLowerCase()} through approval and disposition steps`,
+    persistence_audit: `Persist audit and outcome records`,
+    generic_step_group: `Execute grouped process steps for ${context.domainLabel}`,
+  };
+  return summaryByRole[role];
+}
+
+function buildDeterministicStatusLiteral(role: DeterministicWorkflowRole): string {
+  const statusByRole: Record<DeterministicWorkflowRole, string> = {
+    intake_dispatcher: "Dispatched",
+    entity_resolution: "Resolved",
+    document_extraction: "Extracted",
+    validation_matching: "Validated",
+    communication_drafting: "Drafted",
+    review_exception: "Reviewed",
+    outbound_communication: "PreparedForDelivery",
+    approval_routing: "ApprovalCompleted",
+    persistence_audit: "AuditPrepared",
+    generic_step_group: "Completed",
+  };
+  return statusByRole[role];
+}
+
+function buildContextSeedJson(context: DeterministicWorkflowContext, role: DeterministicWorkflowRole): string {
+  return `"{""EntityType"":""${context.primaryEntityLabel}"",""WorkflowRole"":""${role}"",""QueueName"":""${context.queueName}"",""Domain"":""${context.domainLabel.replace(/"/g, '""')}""}"`;
+}
+
+function buildGenericDeterministicSubWorkflowSpec(
+  childWorkflowName: string,
+  projectName: string,
+  childNodes: any[],
+  context: DeterministicWorkflowContext,
+): TreeWorkflowSpec | null {
+  if (!childNodes.length) return null;
+  const normalized = childWorkflowName.replace(/\s+/g, "_");
+  const role = classifyDeterministicWorkflowRole(childNodes[0]);
+  const argumentsList: Array<{ name: string; direction: string; type: string }> = [
+    { name: "in_Config", direction: "InArgument", type: "scg:Dictionary(x:String, x:Object)" },
+    { name: "in_ContextJson", direction: "InArgument", type: "x:String" },
+    { name: "out_ContextJson", direction: "OutArgument", type: "x:String" },
+    { name: "out_WorkflowStatus", direction: "OutArgument", type: "x:String" },
+  ];
+  if (role === "intake_dispatcher") argumentsList.push({ name: "out_ItemCount", direction: "OutArgument", type: "x:Int32" });
+  if (role === "review_exception") argumentsList.push({ name: "in_RequiresReview", direction: "InArgument", type: "x:Boolean" });
+
+  const children: TreeWorkflowNode[] = [
+    makeDeterministicActivity("LogMessage", `Start ${normalized}`, { Level: "Info", Message: `Starting ${normalized}` }),
+    makeDeterministicActivity("LogMessage", "Workflow Purpose", { Level: "Info", Message: buildDeterministicRoleSummary(role, context) }),
+  ];
+
+  for (const node of childNodes) {
+    children.push(makeDeterministicActivity("LogMessage", `Step: ${node.name}`, {
+      Level: "Info",
+      Message: `["Execute step: ${String(node.description || node.name || "process step").replace(/"/g, '""')}"]`,
+    }));
+    const systemActivity = selectSystemActivity(node.system || "", node.description || "");
+    if (systemActivity) {
+      children.push({
+        kind: "activity",
+        template: systemActivity.template,
+        displayName: systemActivity.displayName,
+        properties: systemActivity.properties,
+        outputVar: null,
+        outputType: null,
+        errorHandling: "none",
+      });
+    }
+  }
+
+  if (role === "review_exception") {
+    children.push({
+      kind: "if",
+      displayName: "Decision: Review Required",
+      condition: "[in_RequiresReview]",
+      thenChildren: [
+        makeDeterministicActivity("Assign", "Set Workflow Status", { To: "out_WorkflowStatus", Value: "ReviewRequired" }),
+        makeDeterministicActivity("Assign", "Pass Through Context", { To: "out_ContextJson", Value: "[in_ContextJson]" }),
+      ],
+      elseChildren: [
+        makeDeterministicActivity("Assign", "Set Workflow Status", { To: "out_WorkflowStatus", Value: buildDeterministicStatusLiteral(role) }),
+        makeDeterministicActivity("Assign", "Pass Through Context", { To: "out_ContextJson", Value: "[in_ContextJson]" }),
+      ],
+    });
+  } else {
+    children.push(makeDeterministicActivity("Assign", "Seed Output Context", { To: "out_ContextJson", Value: buildContextSeedJson(context, role) }));
+    children.push(makeDeterministicActivity("Assign", "Set Workflow Status", { To: "out_WorkflowStatus", Value: buildDeterministicStatusLiteral(role) }));
+  }
+  if (role === "intake_dispatcher") {
+    children.push(makeDeterministicActivity("Assign", "Set Item Count", { To: "out_ItemCount", Value: "1" }));
+  }
+  children.push(makeDeterministicActivity("LogMessage", `Complete ${normalized}`, { Level: "Info", Message: `Completed ${normalized}` }));
+
+  return {
+    name: normalized,
+    description: `${titleCaseDeterministic(normalized)} deterministic workflow for ${projectName}`,
+    variables: [],
+    arguments: argumentsList as any,
+    rootSequence: {
+      kind: "sequence",
+      displayName: `${normalized} - Sequence`,
+      children,
+    },
+    useReFramework: false,
+    dhgNotes: [
+      `Deterministic ${role.replace(/_/g, " ")} workflow derived from documented process steps`,
+      "Replace bind-point logging and placeholders with tenant-specific connector activities while preserving the workflow contract",
+    ],
+    decomposition: [],
+  };
+}
+
+function buildGenericDeterministicMainWorkflowSpec(
+  projectName: string,
+  decompositionWorkflowNames: string[],
+  workflowRoleMap: Map<string, DeterministicWorkflowRole>,
+): TreeWorkflowSpec {
+  const variables = [
+    { name: "dict_Config", type: "Dictionary<String, Object>", default: "[New Dictionary(Of String, Object)]" },
+    { name: "str_ProcessContextJson", type: "String", default: '""' },
+    { name: "str_ProcessStatus", type: "String", default: '"Pending"' },
+    { name: "str_LastWorkflowStatus", type: "String", default: '"Pending"' },
+    { name: "int_WorkItemCount", type: "Int32", default: "0" },
+    { name: "bool_RequiresReview", type: "Boolean", default: "False" },
+  ];
+  const children: TreeWorkflowNode[] = [
+    makeDeterministicActivity("LogMessage", "Log Process Start", { Level: "Info", Message: `Starting ${projectName} process` }),
+    makeDeterministicInvoke("InitAllSettings", "Initialize All Settings", { out_Config: "[dict_Config]" }),
+  ];
+  const workflowOrder: DeterministicWorkflowRole[] = [
+    "intake_dispatcher",
+    "entity_resolution",
+    "document_extraction",
+    "validation_matching",
+    "communication_drafting",
+    "review_exception",
+    "outbound_communication",
+    "approval_routing",
+    "persistence_audit",
+    "generic_step_group",
+  ];
+  const sortedWorkflowNames = [...decompositionWorkflowNames].sort((left, right) => {
+    const leftRole = workflowRoleMap.get(left) || "generic_step_group";
+    const rightRole = workflowRoleMap.get(right) || "generic_step_group";
+    return workflowOrder.indexOf(leftRole) - workflowOrder.indexOf(rightRole);
+  });
+  for (const workflowName of sortedWorkflowNames) {
+    const role = workflowRoleMap.get(workflowName) || "generic_step_group";
+    const args: Record<string, string> = {
+      in_Config: "[dict_Config]",
+      in_ContextJson: "[str_ProcessContextJson]",
+      out_ContextJson: "[str_ProcessContextJson]",
+      out_WorkflowStatus: "[str_LastWorkflowStatus]",
+    };
+    if (role === "intake_dispatcher") args.out_ItemCount = "[int_WorkItemCount]";
+    if (role === "review_exception") args.in_RequiresReview = "[bool_RequiresReview]";
+    children.push(makeDeterministicInvoke(workflowName, `Run ${titleCaseDeterministic(workflowName)}`, args));
+  }
+  children.push(makeDeterministicActivity("Assign", "Set Final Process Status", { To: "str_ProcessStatus", Value: "[str_LastWorkflowStatus]" }));
+  children.push(makeDeterministicActivity("LogMessage", "Log Process Complete", {
+    Level: "Info",
+    Message: `["${projectName} process completed. WorkflowStatus=" & str_ProcessStatus & ", ItemCount=" & int_WorkItemCount.ToString()]`,
+  }));
+  return {
+    name: "Main",
+    description: `Deterministic orchestrator for ${projectName}`,
+    variables,
+    arguments: [],
+    rootSequence: {
+      kind: "sequence",
+      displayName: "Main - Deterministic Sequence",
+      children,
+    },
+    useReFramework: false,
+    dhgNotes: [
+      "Deterministic orchestrator generated from process-derived workflow contracts",
+      "Replace bind-point activities inside sub-workflows with tenant-specific connectors while preserving the shared context contract",
+    ],
+    decomposition: [],
+  };
 }
 
 function createDeterministicSubWorkflowSpec(
@@ -2397,11 +2658,20 @@ function expandDeterministicScaffoldToWorkflowMap(
   projectName: string,
 ): Map<string, { spec: TreeWorkflowSpec; processType: ProcessType }> {
   const results = new Map<string, { spec: TreeWorkflowSpec; processType: ProcessType }>();
+  const context = buildDeterministicContext(projectName, processNodes);
+  const workflowRoleMap = new Map<string, DeterministicWorkflowRole>();
   const decompositionWorkflowNames = (scaffoldSpec.decomposition || [])
     .map(d => d.name.replace(/\s+/g, "_"))
     .filter(Boolean);
+  for (const decomp of scaffoldSpec.decomposition || []) {
+    const childNodes = (decomp.nodeIds || [])
+      .map(id => processNodes.find(node => String(node.id) === String(id)))
+      .filter(Boolean);
+    if (!childNodes.length) continue;
+    workflowRoleMap.set(decomp.name.replace(/\s+/g, "_"), classifyDeterministicWorkflowRole(childNodes[0]));
+  }
   const mainSpec: TreeWorkflowSpec = decompositionWorkflowNames.length > 0
-    ? createDeterministicMainWorkflowSpec(projectName, decompositionWorkflowNames)
+    ? buildGenericDeterministicMainWorkflowSpec(projectName, decompositionWorkflowNames, workflowRoleMap)
     : {
         ...scaffoldSpec,
         name: "Main",
@@ -2424,7 +2694,9 @@ function expandDeterministicScaffoldToWorkflowMap(
     if (childNodes.length === 0) continue;
 
     const childWorkflowName = decomp.name.replace(/\s+/g, "_");
-    const explicitSpec = createDeterministicSubWorkflowSpec(childWorkflowName, projectName);
+    const role = classifyDeterministicWorkflowRole(childNodes[0]);
+    workflowRoleMap.set(childWorkflowName, role);
+    const explicitSpec = buildGenericDeterministicSubWorkflowSpec(childWorkflowName, projectName, childNodes, context);
     if (explicitSpec) {
       results.set(childWorkflowName, {
         spec: explicitSpec,
@@ -5994,6 +6266,7 @@ export async function buildNuGetPackage(pkg: UiPathPackage, version: string = "1
         generationMode: generationMode || undefined,
         generationModeReason: modeConfig.reason,
         analysis: dhgAnalysis,
+        xamlEntries: archiveXamlEntries,
       };
       const dhg = generateDhgFromOutcomeReport(assemblerOutcomeReport, dhgContext);
       archive.append(dhg, { name: `${libPath}/DeveloperHandoffGuide.md` });

@@ -1,0 +1,119 @@
+{
+  "docPath": "C:/Users/yusuf.yasin/Downloads/birthday_greetings_v9_full_export.docx",
+  "outputDir": "C:/Users/yusuf.yasin/Downloads/CannonBall/simulation_output_bgv9",
+  "version": "9.0.0-sim",
+  "cacheKey": "bgv9-sim-local",
+  "package": {
+    "projectName": "BirthdayGreetingsV9",
+    "description": "Birthday greetings hybrid unattended automation generated from full export document.",
+    "dependencies": [
+      "UiPath.System.Activities",
+      "UiPath.IntegrationService.Activities",
+      "UiPath.DataService.Activities",
+      "UiPath.Persistence.Activities",
+      "UiPath.GenAI.Activities",
+      "UiPath.GSuite.Activities"
+    ],
+    "workflows": [
+      {
+        "name": "Main",
+        "description": "Primary birthday greetings orchestration entry point.",
+        "variables": [],
+        "steps": [
+          {
+            "activity": "Init Birthday Greetings Run",
+            "activityType": "ui:LogMessage",
+            "activityPackage": "UiPath.System.Activities",
+            "properties": {
+              "Level": "Info",
+              "Message": "\"BirthdayGreetingsV9 simulation started\""
+            },
+            "notes": "Seed entry workflow so local build has an explicit main workflow."
+          }
+        ]
+      }
+    ],
+    "internal": {
+      "sddContent": "",
+      "automationType": "hybrid",
+      "processNodes": [
+        { "id": "1", "name": "Daily 8:00 AM Trigger", "nodeType": "start", "description": "Time trigger starts unattended daily run at 08:00 AM.", "system": "Orchestrator Triggers" },
+        { "id": "2", "name": "Fetch Today's Events from Birthdays Calendar", "nodeType": "task", "description": "Read today's birthday events from the Birthdays calendar using Google Calendar Integration Service connector.", "system": "Google Calendar (Integration Service connector)" },
+        { "id": "3", "name": "Any Birthdays Today?", "nodeType": "decision", "description": "Check whether the calendar query returned any birthday events for today.", "system": "Google Calendar (Integration Service connector)" },
+        { "id": "4", "name": "Build Birthday Recipient Worklist", "nodeType": "task", "description": "Prepare the list of recipients for the current run and initialize run-level tracking.", "system": "Orchestrator" },
+        { "id": "5", "name": "Complete Run (No Birthdays)", "nodeType": "end", "description": "Complete the run with zero birthdays found.", "system": "Orchestrator" },
+        { "id": "6", "name": "Create Queue Items (One per Person)", "nodeType": "task", "description": "Create one queue item per birthday person in BirthdayGreetingsV9_Queue using reference format YYYYMMDD_FullName.", "system": "Orchestrator Queues" },
+        { "id": "7", "name": "Get Next Person from Queue", "nodeType": "task", "description": "Consume the next transaction item from BirthdayGreetingsV9_Queue.", "system": "Orchestrator Queues" },
+        { "id": "8", "name": "Lookup Contact in Google Contacts", "nodeType": "task", "description": "Search Google Contacts by full name to find available email addresses.", "system": "Google Contacts (Integration Service connector)" },
+        { "id": "9", "name": "Email Found?", "nodeType": "decision", "description": "Determine whether any Personal or Home email address was found for the contact.", "system": "Google Contacts (Integration Service connector)" },
+        { "id": "10", "name": "Select Preferred Email (Personal > Home)", "nodeType": "task", "description": "Apply the business rule to prefer Personal email over Home email when multiple addresses exist.", "system": "Google Contacts (Integration Service connector)" },
+        { "id": "11", "name": "Skip This Person (No Email Found)", "nodeType": "task", "description": "Skip the transaction with business exception NoEmailFound and persist the audit outcome.", "system": "Orchestrator" },
+        { "id": "12", "name": "Generate Personalized Birthday Message", "nodeType": "task", "description": "Generate a warm, funny, lightly sarcastic birthday email subject and body using UiPath GenAI Activities with JSON output.", "system": "UiPath GenAI Activities" },
+        { "id": "13", "name": "Message Quality/Safety OK?", "nodeType": "decision", "description": "Validate output schema, guardrails, name inclusion, and max character count from BGV9_MaxMessageChars.", "system": "UiPath GenAI Activities" },
+        { "id": "14", "name": "Send Birthday Email", "nodeType": "task", "description": "Send the approved birthday message through Gmail Integration Service connection ninemush@gmail.com.", "system": "Gmail (Integration Service)" },
+        { "id": "15", "name": "Create Action Center Review Task", "nodeType": "task", "description": "Create Action Center review task when message quality or safety validation fails and human review is enabled.", "system": "Action Center" },
+        { "id": "16", "name": "Persist Run and Message Audit", "nodeType": "task", "description": "Write run summary and per-recipient results to Data Service entities BirthdayGreetingRun and BirthdayGreetingMessage.", "system": "Data Service" },
+        { "id": "17", "name": "Complete Sent Outcome", "nodeType": "end", "description": "Complete successful sent transaction and persist final sent status.", "system": "Orchestrator" },
+        { "id": "18", "name": "Complete Pending Review Outcome", "nodeType": "end", "description": "Complete transaction as pending review for Action Center follow-up.", "system": "Action Center" },
+        { "id": "19", "name": "Complete Skipped Outcome", "nodeType": "end", "description": "Complete transaction as skipped due to missing email.", "system": "Orchestrator" }
+      ],
+      "processEdges": [
+        { "sourceNodeId": "1", "targetNodeId": "2", "label": "" },
+        { "sourceNodeId": "2", "targetNodeId": "3", "label": "" },
+        { "sourceNodeId": "3", "targetNodeId": "4", "label": "Yes" },
+        { "sourceNodeId": "3", "targetNodeId": "5", "label": "No" },
+        { "sourceNodeId": "4", "targetNodeId": "6", "label": "" },
+        { "sourceNodeId": "6", "targetNodeId": "7", "label": "" },
+        { "sourceNodeId": "7", "targetNodeId": "8", "label": "" },
+        { "sourceNodeId": "8", "targetNodeId": "9", "label": "" },
+        { "sourceNodeId": "9", "targetNodeId": "10", "label": "Yes" },
+        { "sourceNodeId": "9", "targetNodeId": "11", "label": "No" },
+        { "sourceNodeId": "10", "targetNodeId": "12", "label": "" },
+        { "sourceNodeId": "12", "targetNodeId": "13", "label": "" },
+        { "sourceNodeId": "13", "targetNodeId": "14", "label": "Pass" },
+        { "sourceNodeId": "13", "targetNodeId": "15", "label": "Fail" },
+        { "sourceNodeId": "14", "targetNodeId": "16", "label": "" },
+        { "sourceNodeId": "15", "targetNodeId": "16", "label": "" },
+        { "sourceNodeId": "11", "targetNodeId": "16", "label": "" },
+        { "sourceNodeId": "16", "targetNodeId": "17", "label": "Sent" },
+        { "sourceNodeId": "16", "targetNodeId": "18", "label": "PendingReview" },
+        { "sourceNodeId": "16", "targetNodeId": "19", "label": "SkippedNoEmail" }
+      ],
+      "orchestratorArtifacts": {
+        "queues": [
+          { "name": "BirthdayGreetingsV9_Queue", "description": "Work queue driving per-person birthday greeting transactions.", "maxRetries": 3, "uniqueReference": true }
+        ],
+        "assets": [
+          { "name": "BGV9_Timezone", "type": "Text", "value": "", "description": "Timezone used to compute today." },
+          { "name": "BGV9_MaxMessageChars", "type": "Integer", "value": "", "description": "Maximum allowed character length for generated body." },
+          { "name": "BGV9_EnableHumanReview", "type": "Bool", "value": "", "description": "Controls Action Center review path." },
+          { "name": "BGV9_SendRunSummaryEmail", "type": "Bool", "value": "", "description": "Controls run summary email." }
+        ],
+        "storageBuckets": [
+          { "name": "birthday-greetings-v9", "description": "Stores prompt templates and run artifacts." }
+        ],
+        "triggers": [
+          { "name": "BirthdayGreetingsV9_Dispatcher_Daily_0800", "type": "Time", "cron": "0 0 8 * * ?", "description": "Runs dispatcher daily at 08:00." },
+          { "name": "BirthdayGreetingsV9_ResubmitReviewed_Every15Min", "type": "Time", "cron": "0 0/15 * * * ?", "description": "Optional review resubmission trigger." }
+        ],
+        "actionCenter": [
+          { "taskCatalog": "BirthdayGreetingsV9_MessageReview", "assignedRole": "Reviewer" }
+        ]
+      },
+      "targetFramework": "Windows",
+      "autopilotEnabled": false,
+      "useReFramework": true,
+      "complexityTier": "complex",
+      "forceRebuild": true
+    },
+    "agents": [
+      {
+        "description": "BGV9_MessageComposerAgent for guarded birthday message generation.",
+        "tools": ["LookupContactEmail", "SendGmail"],
+        "guardrails": ["Output JSON with subject and body only", "Avoid sensitive content", "Include recipient name"],
+        "maxIterations": 2
+      }
+    ],
+    "knowledgeBases": ["birthday-greetings-v9"]
+  }
+}

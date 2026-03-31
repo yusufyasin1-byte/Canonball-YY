@@ -1,0 +1,112 @@
+{
+  "docPath": "C:/Users/yusuf.yasin/Downloads/travel_export.docx",
+  "outputDir": "C:/Users/yusuf.yasin/Downloads/CannonBall/simulation_output_travel",
+  "version": "1.0.0-sim",
+  "cacheKey": "travel-sim-local",
+  "package": {
+    "projectName": "TravelCommuteUpdate",
+    "description": "Weekday commute update email automation generated from travel export.",
+    "dependencies": [
+      "UiPath.System.Activities",
+      "UiPath.IntegrationService.Activities",
+      "UiPath.DataService.Activities",
+      "UiPath.Persistence.Activities",
+      "UiPath.GenAI.Activities",
+      "UiPath.Mail.Activities"
+    ],
+    "workflows": [
+      {
+        "name": "Main",
+        "description": "Primary travel commute update orchestration entry point.",
+        "variables": [],
+        "steps": [
+          {
+            "activity": "Init Travel Commute Run",
+            "activityType": "ui:LogMessage",
+            "activityPackage": "UiPath.System.Activities",
+            "properties": {
+              "Level": "Info",
+              "Message": "\"Travel commute simulation started\""
+            },
+            "notes": "Seed entry workflow so local build has an explicit main workflow."
+          }
+        ]
+      }
+    ],
+    "internal": {
+      "sddContent": "",
+      "automationType": "hybrid",
+      "processNodes": [
+        { "id": "1", "name": "Weekday Commute Update Trigger", "nodeType": "start", "description": "Run unattended every weekday at 06:30 Europe/London.", "system": "Orchestrator Triggers" },
+        { "id": "2", "name": "Load Commute Parameters", "nodeType": "task", "description": "Load RM14 1BT to EC2N 4BQ, depart 07:00, start station Upminster.", "system": "Orchestrator Assets" },
+        { "id": "3", "name": "Resolve Locations to Coordinates", "nodeType": "task", "description": "Resolve home and office locations to coordinates.", "system": "Data Service / Data Fabric" },
+        { "id": "4", "name": "Get Weather Forecast for 07:00", "nodeType": "task", "description": "Get morning weather forecast for origin area.", "system": "Integration Service Weather" },
+        { "id": "5", "name": "Get London Underground Line Status", "nodeType": "task", "description": "Get relevant underground status including District line.", "system": "Integration Service HTTP Webhook" },
+        { "id": "6", "name": "Get National Rail c2c Service Status", "nodeType": "task", "description": "Get c2c and National Rail service status.", "system": "Integration Service HTTP Webhook" },
+        { "id": "7", "name": "Determine Scheduled Fastest Route Template", "nodeType": "task", "description": "Determine scheduled fastest route from Upminster to Bank or Monument area.", "system": "Data Service / Data Fabric" },
+        { "id": "8", "name": "Disruption Impacts Scheduled Route", "nodeType": "decision", "description": "Determine whether current disruptions materially impact the scheduled route.", "system": "Orchestrator" },
+        { "id": "9", "name": "Build Normal Summary Content", "nodeType": "task", "description": "Build normal summary with weather, no material disruptions, and fastest route.", "system": "Orchestrator" },
+        { "id": "10", "name": "Build Disruption Context Pack", "nodeType": "task", "description": "Build disruption context with affected lines, severity, c2c status, and District fallback.", "system": "Orchestrator" },
+        { "id": "11", "name": "Agent Draft Commute Email", "nodeType": "task", "description": "Use UiPath Agents and Azure OpenAI to draft a clear commute recommendation email.", "system": "UiPath Agents + Azure OpenAI" },
+        { "id": "12", "name": "Draft Meets Safety and Format Rules", "nodeType": "decision", "description": "Validate drafted content against safety and format rules.", "system": "Orchestrator" },
+        { "id": "13", "name": "Create Human Review Task", "nodeType": "task", "description": "Create Action Center task to approve or edit the email.", "system": "Action Center" },
+        { "id": "14", "name": "Apply Approved or Edited Email Text", "nodeType": "task", "description": "Apply Action Center edits back into the final email content.", "system": "Action Center" },
+        { "id": "15", "name": "Assemble Final Email", "nodeType": "task", "description": "Assemble final subject and body for the commute update email.", "system": "Orchestrator" },
+        { "id": "16", "name": "Send Email via Gmail Connector", "nodeType": "task", "description": "Send the commute update email to sumeet.Sangawar@outlook.com using Gmail connector ninemush@gmail.com.", "system": "Integration Service Gmail" },
+        { "id": "17", "name": "Commute Update Sent End", "nodeType": "end", "description": "Commute update email sent.", "system": "Orchestrator" }
+      ],
+      "processEdges": [
+        { "sourceNodeId": "1", "targetNodeId": "2", "label": "" },
+        { "sourceNodeId": "2", "targetNodeId": "3", "label": "" },
+        { "sourceNodeId": "3", "targetNodeId": "4", "label": "" },
+        { "sourceNodeId": "3", "targetNodeId": "5", "label": "" },
+        { "sourceNodeId": "3", "targetNodeId": "6", "label": "" },
+        { "sourceNodeId": "2", "targetNodeId": "7", "label": "" },
+        { "sourceNodeId": "5", "targetNodeId": "8", "label": "" },
+        { "sourceNodeId": "8", "targetNodeId": "9", "label": "No" },
+        { "sourceNodeId": "8", "targetNodeId": "10", "label": "Yes" },
+        { "sourceNodeId": "10", "targetNodeId": "11", "label": "" },
+        { "sourceNodeId": "11", "targetNodeId": "12", "label": "" },
+        { "sourceNodeId": "12", "targetNodeId": "15", "label": "Yes" },
+        { "sourceNodeId": "12", "targetNodeId": "13", "label": "No" },
+        { "sourceNodeId": "13", "targetNodeId": "14", "label": "" },
+        { "sourceNodeId": "14", "targetNodeId": "15", "label": "" },
+        { "sourceNodeId": "9", "targetNodeId": "15", "label": "" },
+        { "sourceNodeId": "15", "targetNodeId": "16", "label": "" },
+        { "sourceNodeId": "16", "targetNodeId": "17", "label": "" }
+      ],
+      "orchestratorArtifacts": {
+        "assets": [
+          { "name": "Travel_HomePostcode", "type": "Text", "value": "", "description": "Home postcode RM14 1BT" },
+          { "name": "Travel_OfficePostcode", "type": "Text", "value": "", "description": "Office postcode EC2N 4BQ" },
+          { "name": "Travel_DepartureTime", "type": "Text", "value": "", "description": "Target departure time 07:00" },
+          { "name": "Travel_StartStation", "type": "Text", "value": "", "description": "Starting station Upminster" },
+          { "name": "Travel_EmailRecipient", "type": "Text", "value": "", "description": "Commute update recipient" }
+        ],
+        "triggers": [
+          { "name": "Travel_Commute_Weekday_0630", "type": "Time", "cron": "0 30 6 ? * MON-FRI *", "description": "Weekday commute update trigger" }
+        ],
+        "actionCenter": [
+          { "taskCatalog": "TravelCommuteReview", "assignedRole": "Commuter" }
+        ],
+        "storageBuckets": [
+          { "name": "travel-commute-update", "description": "Stores travel prompt and evidence artifacts" }
+        ]
+      },
+      "targetFramework": "Windows",
+      "autopilotEnabled": false,
+      "useReFramework": true,
+      "complexityTier": "complex",
+      "forceRebuild": true
+    },
+    "agents": [
+      {
+        "description": "TravelCommuteDraftingAgent for safe commute briefing generation.",
+        "tools": ["GetWeatherForecast", "GetRailStatus", "GetTubeStatus", "SendGmail"],
+        "guardrails": ["Keep guidance concise", "Prefer explicit disruption advice", "Escalate unsafe draft to Action Center"],
+        "maxIterations": 2
+      }
+    ],
+    "knowledgeBases": ["travel-commute-update"]
+  }
+}

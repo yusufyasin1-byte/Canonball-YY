@@ -12,6 +12,77 @@ export interface DhgContext {
   generationModeReason?: string;
   generatedDate?: string;
   analysis?: DhgAnalysisResult;
+  xamlEntries?: Array<{ name: string; content: string }>;
+}
+
+type DetectedBindPoint = {
+  file: string;
+  displayName: string;
+  system: string;
+  detail: string;
+  estimatedEffortMinutes: number;
+};
+
+type BindPointSummary = {
+  entries: DetectedBindPoint[];
+  totalEstimatedEffortMinutes: number;
+  workflowsWithBindPoints: Set<string>;
+  systems: Set<string>;
+};
+
+function estimateBindPointEffort(system: string): number {
+  const normalized = system.toLowerCase();
+  if (normalized.includes("queue")) return 45;
+  if (normalized.includes("action center")) return 45;
+  if (normalized.includes("data service")) return 45;
+  if (normalized.includes("genai")) return 40;
+  if (normalized.includes("gmail")) return 30;
+  if (normalized.includes("http") || normalized.includes("webhook")) return 30;
+  if (normalized.includes("calendar") || normalized.includes("contacts")) return 30;
+  return 25;
+}
+
+function summarizeBindPoints(xamlEntries?: Array<{ name: string; content: string }>): BindPointSummary {
+  const entries: DetectedBindPoint[] = [];
+  const workflowsWithBindPoints = new Set<string>();
+  const systems = new Set<string>();
+  if (!xamlEntries || xamlEntries.length === 0) {
+    return { entries, totalEstimatedEffortMinutes: 0, workflowsWithBindPoints, systems };
+  }
+
+  const seen = new Set<string>();
+  const logTagRegex = /<ui:LogMessage\b[^>]*\/>/gi;
+  for (const entry of xamlEntries) {
+    const file = entry.name.split("/").pop() || entry.name;
+    let match: RegExpExecArray | null;
+    while ((match = logTagRegex.exec(entry.content)) !== null) {
+      const tag = match[0];
+      const displayName = tag.match(/\bDisplayName="([^"]*Bind Point[^"]*)"/i)?.[1];
+      const detail = tag.match(/\bMessage="\[&quot;([^"]*?)&quot;\]"/i)?.[1]?.replace(/&amp;/g, "&");
+      if (!displayName || !detail) continue;
+      const systemMatch = displayName.match(/Bind Point - (.+)$/i);
+      const system = systemMatch?.[1]?.trim() || "External system";
+      const key = `${file}::${displayName}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      entries.push({
+        file,
+        displayName,
+        system,
+        detail,
+        estimatedEffortMinutes: estimateBindPointEffort(system),
+      });
+      workflowsWithBindPoints.add(file);
+      systems.add(system);
+    }
+  }
+
+  return {
+    entries,
+    totalEstimatedEffortMinutes: entries.reduce((sum, entry) => sum + entry.estimatedEffortMinutes, 0),
+    workflowsWithBindPoints,
+    systems,
+  };
 }
 
 export function generateDhgFromOutcomeReport(
@@ -19,6 +90,8 @@ export function generateDhgFromOutcomeReport(
   context: DhgContext,
 ): string {
   const date = context.generatedDate || new Date().toISOString().split("T")[0];
+  const bindPointSummary = summarizeBindPoints(context.xamlEntries);
+  const bindPointCount = bindPointSummary.entries.length;
   let sectionNum = 0;
   let md = "";
 
@@ -60,12 +133,17 @@ export function generateDhgFromOutcomeReport(
       adjustedPercent = Math.min(adjustedPercent, 79);
       adjustedRating = adjustedPercent >= 65 ? "Mostly Ready" : adjustedPercent >= 40 ? "Needs Work" : "Not Ready";
     }
+    if (context.generationMode === "baseline_openable" && bindPointCount > 0) {
+      adjustedPercent = Math.min(adjustedPercent, bindPointCount >= 4 ? 45 : 55);
+      adjustedRating = adjustedPercent >= 40 ? "Needs Work" : "Not Ready";
+    }
     md += `**Deployment Readiness:** ${adjustedRating} (${adjustedPercent}%)\n`;
   }
 
   md += `\n`;
 
-  md += `**Total Estimated Effort: ~${report.totalEstimatedEffortMinutes} minutes (${(report.totalEstimatedEffortMinutes / 60).toFixed(1)} hours)**\n`;
+  const totalEstimatedEffortMinutes = report.totalEstimatedEffortMinutes + bindPointSummary.totalEstimatedEffortMinutes;
+  md += `**Total Estimated Effort: ~${totalEstimatedEffortMinutes} minutes (${(totalEstimatedEffortMinutes / 60).toFixed(1)} hours)**\n`;
   md += `**Remediations:** ${totalRemediations} total (${totalPropertyRemediations} property, ${totalActivityRemediations} activity, ${totalSequenceRemediations} sequence, ${totalStructuralLeafRemediations} structural-leaf, ${totalWorkflowRemediations} workflow)\n`;
   md += `**Auto-Repairs:** ${report.autoRepairs.length}\n`;
   md += `**Quality Warnings:** ${report.qualityWarnings.length}\n`;
@@ -74,7 +152,11 @@ export function generateDhgFromOutcomeReport(
   sectionNum++;
   md += `## ${sectionNum}. Completed Work\n\n`;
   if (report.fullyGeneratedFiles.length > 0) {
-    md += `The following ${report.fullyGeneratedFiles.length} workflow(s) were fully generated without any stub replacements or remediation:\n\n`;
+    if (context.generationMode === "baseline_openable" && bindPointCount > 0) {
+      md += `The following ${report.fullyGeneratedFiles.length} workflow(s) were generated as structurally valid baseline workflows. ${bindPointSummary.workflowsWithBindPoints.size} workflow(s) still contain developer bind points for business implementation.\n\n`;
+    } else {
+      md += `The following ${report.fullyGeneratedFiles.length} workflow(s) were fully generated without any stub replacements or remediation:\n\n`;
+    }
     for (const f of report.fullyGeneratedFiles) {
       md += `- \`${f}\`\n`;
     }
@@ -96,6 +178,7 @@ export function generateDhgFromOutcomeReport(
       const hasRemediation = [...report.remediations, ...report.propertyRemediations].some(
         r => r.file === `${wf}.xaml` || r.file === wf
       );
+      const hasBindPoints = bindPointSummary.workflowsWithBindPoints.has(`${wf}.xaml`) || bindPointSummary.workflowsWithBindPoints.has(wf);
       const hasPlaceholders = report.qualityWarnings.some(
         w => w.check === "placeholder-value" && (w.file === `${wf}.xaml` || w.file === wf)
       );
@@ -110,6 +193,8 @@ export function generateDhgFromOutcomeReport(
         status = failureSummary
           ? `Structurally invalid — ${failureSummary}`
           : "Structurally invalid (not Studio-loadable)";
+      } else if (hasBindPoints && context.generationMode === "baseline_openable") {
+        status = "Generated with Developer Bind Points";
       } else if (isFullyGenerated) {
         status = "Fully Generated";
       } else if (hasPlaceholders) {
@@ -200,6 +285,17 @@ export function generateDhgFromOutcomeReport(
 
   if (allRemediations.length === 0 && report.qualityWarnings.length === 0) {
     md += `No manual developer action is required.\n\n`;
+  }
+
+  if (bindPointSummary.entries.length > 0) {
+    md += `### Developer Implementation Bind Points (${bindPointSummary.entries.length})\n\n`;
+    md += `These workflows are Studio-openable but still require system-specific implementation before production deployment.\n\n`;
+    md += `| # | File | System | Bind Point | Developer Action | Est. Minutes |\n`;
+    md += `|---|------|--------|------------|-----------------|-------------|\n`;
+    bindPointSummary.entries.forEach((entry, i) => {
+      md += `| ${i + 1} | \`${entry.file}\` | ${entry.system.replace(/\|/g, "\\|")} | ${entry.displayName.replace(/\|/g, "\\|")} | ${entry.detail.replace(/\|/g, "\\|")} | ${entry.estimatedEffortMinutes} |\n`;
+    });
+    md += `\n`;
   }
 
   if (report.propertyRemediations.length > 0) {
@@ -414,8 +510,10 @@ export function generateDhgFromOutcomeReport(
   if (allRemediations.length > 0 || report.qualityWarnings.length > 0) {
     const remediationEffort = allRemediations.reduce((s, r) => s + (r.estimatedEffortMinutes || 0), 0);
     const warningEffort = report.qualityWarnings.reduce((s, w) => s + (w.estimatedEffortMinutes || 0), 0);
-    const totalEffort = remediationEffort + warningEffort;
+    const totalEffort = remediationEffort + warningEffort + bindPointSummary.totalEstimatedEffortMinutes;
     md += `**Total manual remediation effort: ~${totalEffort} minutes (${(totalEffort / 60).toFixed(1)} hours)**\n\n`;
+  } else if (bindPointSummary.entries.length > 0) {
+    md += `**Total manual remediation effort: ~${bindPointSummary.totalEstimatedEffortMinutes} minutes (${(bindPointSummary.totalEstimatedEffortMinutes / 60).toFixed(1)} hours)**\n\n`;
   }
 
   if (context.analysis) {
@@ -425,19 +523,19 @@ export function generateDhgFromOutcomeReport(
         md += generateBusinessProcessOverviewSection(context.analysis, ++sectionNum);
       }
     }
-    md += generateEnvironmentSetupSection(context.analysis, ++sectionNum);
+    md += generateEnvironmentSetupSection(context.analysis, ++sectionNum, bindPointSummary);
     md += generateCredentialAssetSection(context.analysis, ++sectionNum);
     if (context.analysis.sddCrossReference) {
       md += generateCrossReferenceSection(context.analysis.sddCrossReference, ++sectionNum);
     }
-    md += generateQueueManagementSection(context.analysis, ++sectionNum);
+    md += generateQueueManagementSection(context.analysis, ++sectionNum, bindPointSummary);
     md += generateExceptionCoverageSection(context.analysis, ++sectionNum);
     md += generateTriggerConfigSection(context.analysis, ++sectionNum);
     if (context.analysis.upstreamContext?.qualityWarnings && context.analysis.upstreamContext.qualityWarnings.length > 0) {
       md += generateUpstreamWarningsSection(context.analysis, ++sectionNum);
     }
     md += generatePreDeploymentChecklist(context.analysis, ++sectionNum);
-    md += generateReadinessScoreSection(context.analysis, ++sectionNum);
+    md += generateReadinessScoreSection(context.analysis, ++sectionNum, bindPointSummary, context.generationMode);
   }
 
   if (report.preEmissionValidation) {
@@ -475,8 +573,10 @@ export function generateDhgFromOutcomeReport(
   return md;
 }
 
-function generateEnvironmentSetupSection(analysis: DhgAnalysisResult, sectionNum: number): string {
+function generateEnvironmentSetupSection(analysis: DhgAnalysisResult, sectionNum: number, bindPointSummary?: BindPointSummary): string {
   const env = analysis.environmentRequirements;
+  const bindSystems = bindPointSummary?.systems || new Set<string>();
+  const needsOrchestrator = env.usesOrchestrator || Array.from(bindSystems).some(s => /queue|action center|orchestrator/i.test(s));
   let md = `## ${sectionNum}. Environment Setup\n\n`;
 
   md += `| Requirement | Value |\n`;
@@ -485,13 +585,13 @@ function generateEnvironmentSetupSection(analysis: DhgAnalysisResult, sectionNum
   md += `| Robot Type | ${env.needsAttendedRobot ? "Attended (user interaction required)" : "Unattended"} |\n`;
   md += `| Modern Activities | ${env.usesModernActivities ? "Yes" : "No"} |\n`;
   md += `| Studio Version | ${env.studioVersion} |\n`;
-  md += `| Orchestrator Connection | ${env.usesOrchestrator ? "Required" : "Not required"} |\n`;
+  md += `| Orchestrator Connection | ${needsOrchestrator ? "Required" : "Not required"} |\n`;
   md += `| Machine Template | ${env.machineTemplate.recommendedType} |\n`;
 
-  if (env.usesActionCenter) md += `| Action Center | Required |\n`;
-  if (env.usesAICenter) md += `| AI Center | Required |\n`;
+  if (env.usesActionCenter || Array.from(bindSystems).some(s => /action center/i.test(s))) md += `| Action Center | Required |\n`;
+  if (env.usesAICenter || Array.from(bindSystems).some(s => /genai/i.test(s))) md += `| AI Center | Required |\n`;
   if (env.usesDocumentUnderstanding) md += `| Document Understanding | Required |\n`;
-  if (env.usesDataService) md += `| Data Service | Required |\n`;
+  if (env.usesDataService || Array.from(bindSystems).some(s => /data service/i.test(s))) md += `| Data Service | Required |\n`;
   md += `\n`;
 
   md += `### Machine Template\n\n`;
@@ -587,12 +687,24 @@ function generateCredentialAssetSection(analysis: DhgAnalysisResult, sectionNum:
   return md;
 }
 
-function generateQueueManagementSection(analysis: DhgAnalysisResult, sectionNum: number): string {
+function generateQueueManagementSection(analysis: DhgAnalysisResult, sectionNum: number, bindPointSummary?: BindPointSummary): string {
   const q = analysis.queueManagement;
   let md = `## ${sectionNum}. Queue Management\n\n`;
+  const queueBindPoints = (bindPointSummary?.entries || []).filter(entry => /queue/i.test(entry.system) || /queue/i.test(entry.displayName));
 
-  if (q.entries.length === 0) {
+  if (q.entries.length === 0 && queueBindPoints.length === 0) {
     md += `No queue activities detected in the package.\n\n`;
+    return md;
+  }
+
+  if (q.entries.length === 0 && queueBindPoints.length > 0) {
+    md += `No concrete queue activities were emitted, but the generated workflows still contain queue implementation bind points.\n\n`;
+    md += `| # | File | Bind Point | Developer Action |\n`;
+    md += `|---|------|------------|-----------------|\n`;
+    queueBindPoints.forEach((entry, i) => {
+      md += `| ${i + 1} | \`${entry.file}\` | ${entry.displayName.replace(/\|/g, "\\|")} | ${entry.detail.replace(/\|/g, "\\|")} |\n`;
+    });
+    md += `\n`;
     return md;
   }
 
@@ -926,26 +1038,57 @@ function generateUpstreamWarningsSection(analysis: DhgAnalysisResult, sectionNum
   return md;
 }
 
-function generateReadinessScoreSection(analysis: DhgAnalysisResult, sectionNum: number): string {
+function generateReadinessScoreSection(
+  analysis: DhgAnalysisResult,
+  sectionNum: number,
+  bindPointSummary?: BindPointSummary,
+  generationMode?: "full_implementation" | "baseline_openable",
+): string {
   const r = analysis.readiness;
+  const bindPointCount = bindPointSummary?.entries.length || 0;
+  const baselineNeedsWork = generationMode === "baseline_openable" && bindPointCount > 0;
+  const adjustedPercent = baselineNeedsWork ? Math.min(r.percent, bindPointCount >= 4 ? 45 : 55) : r.percent;
+  const adjustedRating = baselineNeedsWork ? (adjustedPercent >= 40 ? "Needs Work" : "Not Ready") : r.rating;
+  const sections = r.sections.map(section => ({ ...section, notes: [...section.notes] }));
+  if (baselineNeedsWork) {
+    const queueSection = sections.find(section => section.section === "Queue Management");
+    if (queueSection) {
+      queueSection.score = Math.min(queueSection.score, 3);
+      queueSection.notes = queueSection.notes.filter(note => !/no queue activities/i.test(note));
+      queueSection.notes.push(`Queue implementation bind points remain in ${bindPointSummary?.entries.filter(entry => /queue/i.test(entry.system) || /queue/i.test(entry.displayName)).length || 0} workflow(s)`);
+    }
+    const envSection = sections.find(section => section.section === "Environment Setup");
+    if (envSection) {
+      envSection.score = Math.min(envSection.score, 5);
+      envSection.notes.push(`${bindPointCount} developer bind point(s) remain before production deployment`);
+    }
+    const buildQuality = sections.find(section => section.section === "Build Quality");
+    if (buildQuality) {
+      buildQuality.score = Math.min(buildQuality.score, 4);
+      buildQuality.notes.push("Baseline workflows are Studio-openable but not fully implemented");
+    }
+  }
   let md = `## ${sectionNum}. Deployment Readiness Score\n\n`;
 
   md += `**Overall: ${r.rating} — ${r.totalScore}/${r.maxTotalScore} (${r.percent}%)**\n\n`;
 
   md += `| Section | Score | Notes |\n`;
   md += `|---------|-------|-------|\n`;
-  for (const sec of r.sections) {
+  if (baselineNeedsWork) {
+    md += `> **Override for Baseline Mode:** This package is Studio-openable, but ${bindPointCount} developer bind point(s) still remain. Treat it as \`${adjustedRating}\`, not deployable.\n\n`;
+  }
+  for (const sec of sections) {
     const notes = sec.notes.join("; ");
     md += `| ${sec.section} | ${sec.score}/${sec.maxScore} | ${notes} |\n`;
   }
   md += `\n`;
 
-  const hasBlockingDefects = analysis.hasBlockedWorkflows || analysis.readiness.sections.some(s => s.score <= 0);
-  if (r.rating === "Not Ready" || r.rating === "Needs Work") {
+  const hasBlockingDefects = analysis.hasBlockedWorkflows || sections.some(s => s.score <= 0);
+  if (adjustedRating === "Not Ready" || adjustedRating === "Needs Work") {
     md += `> **Action Required:** Address the items above before deploying to production. Focus on sections with the lowest scores first.\n\n`;
   } else if (hasBlockingDefects) {
     md += `> **Action Required:** The package has blocking structural defects that must be resolved before deployment.\n\n`;
-  } else if (r.rating === "Mostly Ready") {
+  } else if (adjustedRating === "Mostly Ready") {
     md += `> **Almost There:** A few items need attention before production deployment.\n\n`;
   } else {
     md += `> **Good to Go:** The package meets deployment readiness criteria.\n\n`;

@@ -637,6 +637,7 @@ function buildDhgFromBuildResult(
       workflowNames: effectiveWfNames,
       generationMode: generationMode || undefined,
       analysis,
+      xamlEntries,
     };
     dhgContent = generateDhgFromOutcomeReport(buildResult.outcomeReport, dhgContext);
   } else {
@@ -664,6 +665,7 @@ function buildDhgFromBuildResult(
       workflowNames: effectiveWfNames,
       generationMode: generationMode || undefined,
       analysis,
+      xamlEntries,
     };
     dhgContent = generateDhgFromOutcomeReport(syntheticReport, dhgContext);
   }
