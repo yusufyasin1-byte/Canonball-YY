@@ -48,6 +48,25 @@ export interface AssemblyRemediationContext {
   escalationThreshold: number;
 }
 
+const CRITICAL_WORKFLOW_NAME_PATTERNS = [
+  /^main(?:\.xaml)?$/i,
+  /^process(?:\.xaml)?$/i,
+  /^dispatcher(?:\.xaml)?$/i,
+  /^performer(?:\.xaml)?$/i,
+  /^gettransactiondata(?:\.xaml)?$/i,
+  /^settransactionstatus(?:\.xaml)?$/i,
+  /^contactresolver(?:\.xaml)?$/i,
+  /^messagecomposer(?:\.xaml)?$/i,
+  /^emailsender(?:\.xaml)?$/i,
+  /^calendarreader(?:\.xaml)?$/i,
+  /^initallsettings(?:\.xaml)?$/i,
+];
+
+function isCriticalWorkflowName(name: string): boolean {
+  const base = name.split("/").pop() || name;
+  return CRITICAL_WORKFLOW_NAME_PATTERNS.some(pattern => pattern.test(base));
+}
+
 let _activeRemediationContext: AssemblyRemediationContext | null = null;
 
 export function setRemediationContext(ctx: AssemblyRemediationContext): void {
@@ -208,6 +227,7 @@ export function isUnsafeVariableName(name: string): string | null {
 
 function mapClrType(type: string): string {
   const trimmed = type.trim();
+  if (/^(x|s|scg|scg2):/.test(trimmed)) return trimmed;
   const lower = trimmed.toLowerCase();
   if (lower === "string" || lower === "system.string" || lower === "x:string") return "x:String";
   if (lower === "int32" || lower === "integer" || lower === "int" || lower === "system.int32" || lower === "x:int32") return "x:Int32";
@@ -283,6 +303,14 @@ function inferAssignType(varName: string, variables: VariableDeclaration[]): str
 }
 
 function inferTypeFromPrefix(varName: string): string | null {
+  const normalized = (varName || "").trim();
+  const stripped = normalized.replace(/^(in|out|io)_/i, "");
+  const semantic = stripped.toLowerCase();
+  if (/config/.test(semantic)) return "scg:Dictionary(x:String, x:Object)";
+  if (/(requiresreview|enable|enabled|found|complete|success|valid|approved|review)$/i.test(stripped)) return "x:Boolean";
+  if (/(count|number|total|index|retry)$/i.test(stripped)) return "x:Int32";
+  if (/(date|birthdate|rundate)$/i.test(stripped)) return "s:DateTime";
+  if (/(datatable|rows)$/i.test(stripped)) return "scg2:DataTable";
   if (varName.startsWith("str_")) return "x:String";
   if (varName.startsWith("int_") || varName.startsWith("num_")) return "x:Int32";
   if (varName.startsWith("bool_") || varName.startsWith("is_") || varName.startsWith("has_")) return "x:Boolean";
@@ -295,7 +323,53 @@ function inferTypeFromPrefix(varName: string): string | null {
   if (varName.startsWith("sec_")) return "s:Security.SecureString";
   if (varName.startsWith("ts_")) return "s:TimeSpan";
   if (varName.startsWith("obj_")) return "x:Object";
+  if (/^(in|out|io)_/i.test(normalized)) return "x:String";
   return null;
+}
+
+function inferInvokeArgumentType(
+  argName: string,
+  rawBinding: string,
+  allVariables: VariableDeclaration[],
+): string {
+  const binding = rawBinding.trim().replace(/^\[|\]$/g, "");
+  const existingVar = allVariables.find(v => v.name === binding);
+  if (existingVar) {
+    return mapClrType(existingVar.type);
+  }
+  const bindingType = inferTypeFromPrefix(binding);
+  if (bindingType) return bindingType;
+  const argType = inferTypeFromPrefix(argName);
+  if (argType) return argType;
+  const defaultType = inferTypeFromDefault(rawBinding);
+  if (defaultType) return defaultType;
+  return "x:String";
+}
+
+function buildInvokeWorkflowArgumentsXml(
+  props: Record<string, PropertyValue>,
+  allVariables: VariableDeclaration[],
+): string {
+  const argEntries = Object.entries(props).filter(([key]) => /^(in|out|io)_[A-Za-z]\w*$/i.test(key));
+  if (argEntries.length === 0) return "";
+
+  const lines: string[] = [];
+  lines.push(`  <ui:InvokeWorkflowFile.Arguments>`);
+  for (const [argName, argValue] of argEntries) {
+    const direction = argName.startsWith("out_")
+      ? "OutArgument"
+      : argName.startsWith("io_")
+        ? "InOutArgument"
+        : "InArgument";
+    const rawBinding = resolvePropertyValueRaw(argValue);
+    const typeArg = inferInvokeArgumentType(argName, rawBinding, allVariables);
+    const serialized = direction === "InArgument"
+      ? escapeXmlTextContent(normalizeXmlExpression(resolvePropertyValue(argValue)))
+      : escapeXmlTextContent(normalizeXmlExpression(ensureBracketWrapped(rawBinding)));
+    lines.push(`    <${direction} x:TypeArguments="${typeArg}" x:Key="${escapeXml(argName)}">${serialized}</${direction}>`);
+  }
+  lines.push(`  </ui:InvokeWorkflowFile.Arguments>`);
+  return lines.join("\n");
 }
 
 const IMPLICIT_OUTPUT_ACTIVITY_TYPES: Record<string, { outputPropNames: string[]; defaultVar: string; defaultType: string }> = {
@@ -704,10 +778,11 @@ export function resolveActivityTemplate(
 
   if (templateName === "LogMessage") {
     const level = getPropString(props, "Level", "level") || "Info";
-    const message = getPropString(props, "Message", "message") || `"${displayName}"`;
+    const message = getPropString(props, "Message", "message") || displayName;
     let wrappedMessage: string;
     if (looksLikeStringLiteral(message)) {
-      wrappedMessage = `"${message.replace(/"/g, '""')}"`;
+      const escapedLiteral = message.replace(/^"(.*)"$/s, "$1").replace(/"/g, '""');
+      wrappedMessage = `["${escapedLiteral}"]`;
     } else {
       wrappedMessage = smartBracketWrap(message);
     }
@@ -725,9 +800,12 @@ export function resolveActivityTemplate(
 
   if (templateName === "InvokeWorkflowFile") {
     const fileName = getPropString(props, "WorkflowFileName", "workflowFileName") || "Workflow.xaml";
+    const argsXml = buildInvokeWorkflowArgumentsXml(props, allVariables);
+    if (!argsXml) {
+      return applyCatalogConformance(`<ui:InvokeWorkflowFile WorkflowFileName="${escapeXml(fileName)}" DisplayName="${displayName}" />`);
+    }
     return applyCatalogConformance(`<ui:InvokeWorkflowFile WorkflowFileName="${escapeXml(fileName)}" DisplayName="${displayName}">\n` +
-      `  <ui:InvokeWorkflowFile.Arguments>\n` +
-      `  </ui:InvokeWorkflowFile.Arguments>\n` +
+      `${argsXml}\n` +
       `</ui:InvokeWorkflowFile>`);
   }
 
@@ -784,6 +862,7 @@ export function resolveActivityTemplate(
 
   if (UNSUPPORTED_ACTIVITIES.has(templateName)) {
     const isMandatoryPath = emissionContext === "mandatory-catch" || emissionContext === "mandatory-finally";
+    const isCriticalWorkflow = isCriticalWorkflowName(_activeRemediationContext?.fileName || "");
     console.warn(`[Tree Assembler] Unsupported activity "${templateName}" — "${node.displayName}"${isMandatoryPath ? " (in mandatory path)" : ""}. Emitting fallback.`);
     if (_activeRemediationContext) {
       _activeRemediationContext.propertyRemediations.push({
@@ -799,7 +878,7 @@ export function resolveActivityTemplate(
         estimatedEffortMinutes: isMandatoryPath ? 45 : 30,
       });
     }
-    if (isMandatoryPath) {
+    if (isMandatoryPath || isCriticalWorkflow) {
       return `<!-- BLOCKED: Unsupported activity "${escapeXml(templateName)}" in mandatory ${emissionContext === "mandatory-catch" ? "catch" : "finally"} path — "${escapeXml(node.displayName)}" requires manual implementation -->
 <ui:LogMessage Level="Error" Message="[&quot;BLOCKED: Unsupported activity &apos;${escapeXml(templateName)}&apos; in mandatory path — business step &apos;${escapeXml(node.displayName)}&apos; requires manual implementation&quot;]" DisplayName="Log Blocked Activity (${escapeXml(node.displayName)})" />
 <Rethrow DisplayName="Rethrow — blocked activity &apos;${escapeXml(node.displayName)}&apos;" />`;
@@ -813,6 +892,7 @@ export function resolveActivityTemplate(
     const schema = catalogService.getActivitySchema(templateName);
     if (!schema) {
       const isMandatoryPath = emissionContext === "mandatory-catch" || emissionContext === "mandatory-finally";
+      const isCriticalWorkflow = isCriticalWorkflowName(_activeRemediationContext?.fileName || "");
       console.warn(`[Tree Assembler] Unknown template "${templateName}" — not in catalog${isMandatoryPath ? " (in mandatory path)" : ""}, emitting fallback`);
       if (_activeRemediationContext) {
         _activeRemediationContext.propertyRemediations.push({
@@ -828,7 +908,7 @@ export function resolveActivityTemplate(
           estimatedEffortMinutes: isMandatoryPath ? 30 : 20,
         });
       }
-      if (isMandatoryPath) {
+      if (isMandatoryPath || isCriticalWorkflow) {
         return `<!-- BLOCKED: Unknown activity "${escapeXml(templateName)}" in mandatory ${emissionContext === "mandatory-catch" ? "catch" : "finally"} path — "${escapeXml(node.displayName)}" -->
 <ui:LogMessage Level="Error" Message="[&quot;BLOCKED: Unknown activity &apos;${escapeXml(templateName)}&apos; in mandatory path — business step &apos;${escapeXml(node.displayName)}&apos; requires manual implementation&quot;]" DisplayName="Log Blocked Activity (${escapeXml(node.displayName)})" />
 <Rethrow DisplayName="Rethrow — blocked activity &apos;${escapeXml(node.displayName)}&apos;" />`;
@@ -2200,7 +2280,7 @@ export function assembleWorkflowFromSpec(
     allVariables.push({
       name: "str_ScreenshotPath",
       type: "String",
-      default: '"screenshots/error_" & DateTime.Now.ToString("yyyyMMdd_HHmmss") & ".png"',
+      default: '""',
     });
   }
 
@@ -2253,9 +2333,10 @@ export function assembleWorkflowFromSpec(
 
   const existingArgNames = new Set(wfArgs.map(a => a.name));
   const existingVarNames = new Set(allVariables.map(v => v.name));
+  const argScanXml = activitiesXml.replace(/<ui:InvokeWorkflowFile\.Arguments>[\s\S]*?<\/ui:InvokeWorkflowFile\.Arguments>/g, "");
   const argRefPattern = /\b(in_[A-Za-z]\w*|out_[A-Za-z]\w*|io_[A-Za-z]\w*)\b/g;
   let argMatch: RegExpExecArray | null;
-  while ((argMatch = argRefPattern.exec(activitiesXml)) !== null) {
+  while ((argMatch = argRefPattern.exec(argScanXml)) !== null) {
     const argName = argMatch[1];
     if (existingArgNames.has(argName) || existingVarNames.has(argName)) continue;
     const direction = argName.startsWith("out_") ? "OutArgument"
@@ -2356,18 +2437,31 @@ export function validateContainerChildModel(xaml: string, workflowName: string):
   const repairs: string[] = [];
   const errors: string[] = [];
   let patched = xaml;
+  const isCriticalWorkflow = isCriticalWorkflowName(workflowName);
 
   patched = patched.replace(/<If\.Then>\s*<\/If\.Then>/g, () => {
+    if (isCriticalWorkflow) {
+      errors.push("If.Then was empty in a critical workflow — mandatory branch content is missing");
+      return `<If.Then></If.Then>`;
+    }
     repairs.push("If.Then was empty — injected placeholder Sequence");
     return `<If.Then><Sequence DisplayName="TODO: If.Then"><ui:Comment DisplayName="TODO" Text="If.Then was empty — implement then branch" /></Sequence></If.Then>`;
   });
 
   patched = patched.replace(/<If\.Else>\s*<\/If\.Else>/g, () => {
+    if (isCriticalWorkflow) {
+      errors.push("If.Else was empty in a critical workflow — mandatory branch content is missing");
+      return `<If.Else></If.Else>`;
+    }
     repairs.push("If.Else was empty — injected placeholder Sequence");
     return `<If.Else><Sequence DisplayName="TODO: If.Else"><ui:Comment DisplayName="TODO" Text="If.Else was empty — implement else branch" /></Sequence></If.Else>`;
   });
 
   patched = patched.replace(/<TryCatch\.Try>\s*<\/TryCatch\.Try>/g, () => {
+    if (isCriticalWorkflow) {
+      errors.push("TryCatch.Try was empty in a critical workflow — protected business logic is missing");
+      return `<TryCatch.Try></TryCatch.Try>`;
+    }
     repairs.push("TryCatch.Try was empty — injected placeholder Sequence");
     return `<TryCatch.Try><Sequence DisplayName="TODO: TryCatch.Try"><ui:Comment DisplayName="TODO" Text="TryCatch.Try was empty — implement try body" /></Sequence></TryCatch.Try>`;
   });
@@ -2511,10 +2605,14 @@ export function validateContainerChildModel(xaml: string, workflowName: string):
       patched = patched.replace(block, fixed);
     }
     if (!block.includes("<Sequence")) {
-      repairs.push("RetryScope has no Sequence body — injecting placeholder");
-      const closingTag = "</ui:RetryScope>";
-      const fixed = block.replace(closingTag, `<Sequence DisplayName="TODO: RetryScope Body"><ui:Comment DisplayName="TODO" Text="RetryScope body was empty — implement retry logic" /></Sequence>\n    ${closingTag}`);
-      patched = patched.replace(block, fixed);
+      if (isCriticalWorkflow) {
+        errors.push("RetryScope has no Sequence body in a critical workflow — retry logic is missing");
+      } else {
+        repairs.push("RetryScope has no Sequence body — injecting placeholder");
+        const closingTag = "</ui:RetryScope>";
+        const fixed = block.replace(closingTag, `<Sequence DisplayName="TODO: RetryScope Body"><ui:Comment DisplayName="TODO" Text="RetryScope body was empty — implement retry logic" /></Sequence>\n    ${closingTag}`);
+        patched = patched.replace(block, fixed);
+      }
     }
   }
 

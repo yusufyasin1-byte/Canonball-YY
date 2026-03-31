@@ -87,6 +87,7 @@ export function selectGenerationMode(
   const isSimpleOrApi = automationPattern === "simple-linear" || automationPattern === "api-data-driven";
   const isLowConfidence = confidence !== undefined && confidence < 0.6;
   const isTransactional = automationPattern === "transactional-queue";
+  const isHybrid = automationPattern === "hybrid";
 
   const targetFramework = resolvedProfile?.targetFramework || "Windows";
   const projectType = resolvedProfile?.projectType || "Process";
@@ -101,10 +102,10 @@ export function selectGenerationMode(
     };
   }
 
-  if (isTransactional && !isLowConfidence) {
+  if (isTransactional && !isLowConfidence && targetFramework === "Windows" && projectType === "Process") {
     return {
       mode: "full_implementation",
-      reason: `Pattern "${automationPattern}" supports full implementation with REFramework (profile: ${resolvedProfile?.studioLine || "default"}, framework: ${targetFramework})`,
+      reason: `Pattern "${automationPattern}" qualifies for full implementation with REFramework only on a validated Windows Process profile (profile: ${resolvedProfile?.studioLine || "default"}, framework: ${targetFramework})`,
       flatScaffold: false,
       blockReFramework: false,
       blockForbiddenActivities: false,
@@ -123,13 +124,23 @@ export function selectGenerationMode(
     };
   }
 
-  if (automationPattern === "ui-automation" || automationPattern === "hybrid") {
+  if (automationPattern === "ui-automation") {
     return {
       mode: "full_implementation",
       reason: `Pattern "${automationPattern}" supports full implementation (profile: ${resolvedProfile?.studioLine || "default"}, framework: ${targetFramework})`,
       flatScaffold: false,
       blockReFramework: false,
       blockForbiddenActivities: false,
+    };
+  }
+
+  if (isHybrid) {
+    return {
+      mode: "baseline_openable",
+      reason: `Pattern "${automationPattern}" defaults to baseline_openable until hybrid connector/genAI contracts are proven safe for the active profile`,
+      flatScaffold: true,
+      blockReFramework: true,
+      blockForbiddenActivities: true,
     };
   }
 
@@ -1225,8 +1236,8 @@ function inferTypeFromDefaultValue(defaultValue: string | undefined): string | n
 function renderVariablesBlock(variables: VariableDecl[], targetFramework?: TargetFramework): string {
   const isCSharp = targetFramework === "Portable";
   const screenshotDefault = isCSharp
-    ? '"screenshots/error_" + DateTime.Now.ToString("yyyyMMdd_HHmmss") + ".png"'
-    : '"screenshots/error_" & DateTime.Now.ToString("yyyyMMdd_HHmmss") & ".png"';
+    ? '""'
+    : '""';
   const withScreenshot = [...variables, { name: "str_ScreenshotPath", type: "String", defaultValue: screenshotDefault }];
   if (withScreenshot.length === 0) return "<Sequence.Variables />";
 
@@ -3484,7 +3495,6 @@ export function generateDeveloperHandoffGuide(opts: DhgOptions): string {
   if (totalRulesChecked > 0) readinessComponents.push(((totalRulesPassed + totalAutoFixed) / Math.max(totalRulesChecked, 1)) * 100);
   if (totalProvisionAttempts > 0) readinessComponents.push((provisionedCount / totalProvisionAttempts) * 100);
   readinessComponents.push(Math.max(0, 100 - tier3ItemCount * 3 - deployWarningCount * 5));
-  readinessComponents.push(60);
   const readinessScore = readinessComponents.length > 0
     ? Math.round(readinessComponents.reduce((a, b) => a + b, 0) / readinessComponents.length)
     : 0;

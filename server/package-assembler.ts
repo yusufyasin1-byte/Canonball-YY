@@ -562,6 +562,60 @@ function removeUnreachableFiles(
   return { removedFiles, reasons };
 }
 
+const INFRASTRUCTURE_WORKFLOW_NAMES = new Set([
+  "main",
+  "initallsettings",
+  "closeallapplications",
+  "gettransactiondata",
+  "settransactionstatus",
+  "killallprocesses",
+]);
+
+function normalizeWorkflowBasename(name: string): string {
+  return name.replace(/\.xaml$/i, "").replace(/[_\s.]+/g, "").toLowerCase();
+}
+
+function isInfrastructureWorkflowName(name: string): boolean {
+  return INFRASTRUCTURE_WORKFLOW_NAMES.has(normalizeWorkflowBasename(name));
+}
+
+function chooseMainEntryWorkflowNames(
+  candidates: Iterable<string>,
+  preferredName?: string | null,
+): string[] {
+  const unique = Array.from(new Set(Array.from(candidates)
+    .map(name => name.replace(/\.xaml$/i, ""))
+    .filter(name => !!name)
+    .filter(name => normalizeWorkflowBasename(name) !== "main")
+    .filter(name => !isInfrastructureWorkflowName(name))));
+
+  if (unique.length === 0) return [];
+
+  const priority = [
+    preferredName || "",
+    "Process",
+    "Dispatcher",
+    "Performer",
+    "CalendarReader",
+    "ContactResolver",
+    "MessageComposer",
+    "EmailSender",
+    "ReviewHandler",
+    "AuditPersistence",
+  ].filter(Boolean);
+
+  const selected: string[] = [];
+  for (const target of priority) {
+    const match = unique.find(name => normalizeWorkflowBasename(name) === normalizeWorkflowBasename(target));
+    if (match && !selected.includes(match)) {
+      selected.push(match);
+    }
+  }
+
+  if (selected.length > 0) return selected;
+  return [unique[0]];
+}
+
 type CredentialStrategy = "GetAsset" | "GetCredential" | "mixed" | "none";
 
 function detectCredentialStrategy(xamlContent: string): CredentialStrategy {
@@ -761,10 +815,14 @@ function runPostAssemblyValidation(
   }
 
   if (allXamlContent.includes("<ui:GetAsset")) {
-    const getAssetVarPattern = /ui:GetAsset\.AssetValue>[\s\S]*?<OutArgument[^>]*>\[([^\]]+)\]/g;
+    const getAssetBlockPattern = /<ui:GetAsset[\s\S]*?<\/ui:GetAsset>/g;
+    const getAssetVarPattern = /<ui:GetAsset\.AssetValue>[\s\S]*?<OutArgument[^>]*>\[([^\]]+)\]/;
     let gaMatch;
-    while ((gaMatch = getAssetVarPattern.exec(allXamlContent)) !== null) {
-      const varName = gaMatch[1];
+    while ((gaMatch = getAssetBlockPattern.exec(allXamlContent)) !== null) {
+      const assetBlock = gaMatch[0];
+      const outputMatch = getAssetVarPattern.exec(assetBlock);
+      if (!outputMatch) continue;
+      const varName = outputMatch[1];
       const varDeclared = allXamlContent.includes(`Name="${varName}"`);
       if (!varDeclared) {
         warnings.push(`GetAsset output variable "${varName}" is not declared in workflow variables`);
@@ -1552,6 +1610,55 @@ function selectSystemActivity(system: string, description: string): { template: 
   const sysLower = (system || "").toLowerCase();
   const descLower = (description || "").toLowerCase();
 
+  if (sysLower.includes("google calendar")) {
+    return {
+      template: "LogMessage",
+      displayName: `Calendar Reader Bind Point - ${system}`,
+      properties: { Level: "Info", Message: `"Bind Google Calendar connector for ${system}"` },
+    };
+  }
+  if (sysLower.includes("google contacts")) {
+    return {
+      template: "LogMessage",
+      displayName: `Contact Resolver Bind Point - ${system}`,
+      properties: { Level: "Info", Message: `"Bind Google Contacts lookup for ${system}"` },
+    };
+  }
+  if (sysLower.includes("orchestrator queue")) {
+    return {
+      template: "LogMessage",
+      displayName: `Queue Activity Bind Point - ${system}`,
+      properties: { Level: "Info", Message: `"Implement Orchestrator queue interaction for ${system}"` },
+    };
+  }
+  if (sysLower.includes("genai")) {
+    return {
+      template: "LogMessage",
+      displayName: `GenAI Bind Point - ${system}`,
+      properties: { Level: "Info", Message: `"Bind UiPath GenAI activity for ${system}"` },
+    };
+  }
+  if (sysLower.includes("action center")) {
+    return {
+      template: "LogMessage",
+      displayName: `Action Center Bind Point - ${system}`,
+      properties: { Level: "Info", Message: `"Bind Action Center task creation for ${system}"` },
+    };
+  }
+  if (sysLower.includes("data service")) {
+    return {
+      template: "LogMessage",
+      displayName: `Data Service Bind Point - ${system}`,
+      properties: { Level: "Info", Message: `"Bind Data Service entity write for ${system}"` },
+    };
+  }
+  if (sysLower.includes("gmail")) {
+    return {
+      template: "SendOutlookMailMessage",
+      displayName: `Send Email - ${system}`,
+      properties: { To: '""', Subject: '""', Body: '""' },
+    };
+  }
   if (sysLower.includes("api") || sysLower.includes("rest") || sysLower.includes("web service") || descLower.includes("api call") || descLower.includes("http request")) {
     return { template: "HttpClient", displayName: `HTTP Request - ${system}`, properties: { Method: "GET", Endpoint: `"https://${system.replace(/\s+/g, "").toLowerCase()}.example.com/api"`, AcceptFormat: "JSON" } };
   }
@@ -1626,6 +1733,20 @@ function buildDeterministicScaffold(
     errorHandling: "none" as const,
   });
 
+  function suggestDeterministicWorkflowName(node: any): string | null {
+    const text = `${node.name || ""} ${node.description || ""} ${node.system || ""}`.toLowerCase();
+    if (text.includes("calendar")) return "Dispatcher";
+    if (text.includes("queue item") || text.includes("queue")) return "Dispatcher";
+    if (text.includes("contact")) return "ContactResolver";
+    if (text.includes("gmail") || text.includes("send email")) return "EmailSender";
+    if (text.includes("action center") || text.includes("review")) return "ReviewHandler";
+    if (text.includes("data service") || text.includes("audit")) return "AuditPersistence";
+    if (text.includes("genai") || text.includes("compose") || text.includes("message")) return "MessageComposer";
+    return null;
+  }
+
+  const namedDecomposition = new Map<string, number[]>();
+
   let todoCount = 0;
   const complexNodeThreshold = 5;
   for (const node of actionNodes) {
@@ -1661,9 +1782,19 @@ function buildDeterministicScaffold(
       }];
 
       children.push({
+        kind: "activity" as const,
+        template: "Comment",
+        displayName: `Review Decision Condition for ${node.name}`,
+        properties: { Text: `Replace the deterministic [True] decision with the real business condition for: ${conditionHint}` },
+        outputVar: null,
+        outputType: null,
+        errorHandling: "none" as const,
+      });
+
+      children.push({
         kind: "if" as const,
         displayName: `Decision: ${node.name}`,
-        condition: `True ' TODO: Replace with actual condition for: ${conditionHint}`,
+        condition: "True",
         thenChildren,
         elseChildren,
       });
@@ -1766,10 +1897,10 @@ function buildDeterministicScaffold(
       });
 
       if (actionNodes.length > complexNodeThreshold) {
-        const subName = `${node.name.replace(/\s+/g, "_")}_SubWorkflow`;
-        if (decomposition.length < 3) {
-          decomposition.push({ name: subName, nodeIds: [node.id], description: `Sub-workflow for: ${node.name}${node.description ? " — " + node.description : ""}` });
-        }
+        const suggestedName = suggestDeterministicWorkflowName(node) || `${node.name.replace(/\s+/g, "_")}_SubWorkflow`;
+        const existing = namedDecomposition.get(suggestedName) || [];
+        existing.push(node.id);
+        namedDecomposition.set(suggestedName, existing);
       }
       continue;
     }
@@ -1780,7 +1911,7 @@ function buildDeterministicScaffold(
       kind: "activity" as const,
       template: "Comment",
       displayName: `Step: ${node.name}`,
-      properties: { Text: stepDesc },
+      properties: { Text: stepDesc.replace(/^TODO:\s*/i, "Review: ") },
       outputVar: null,
       outputType: null,
       errorHandling: "none" as const,
@@ -1793,6 +1924,16 @@ function buildDeterministicScaffold(
       outputVar: null,
       outputType: null,
       errorHandling: "none" as const,
+    });
+  }
+
+  for (const [name, nodeIds] of namedDecomposition.entries()) {
+    decomposition.push({
+      name,
+      nodeIds,
+      description: `Deterministic bind-point workflow for ${name}`,
+      isDispatcher: name === "Dispatcher" || undefined,
+      isPerformer: name === "Performer" || undefined,
     });
   }
 
@@ -1839,16 +1980,549 @@ function buildDeterministicScaffold(
   };
 }
 
+function makeDeterministicActivity(
+  template: string,
+  displayName: string,
+  properties: Record<string, string> = {},
+): TreeWorkflowNode {
+  return {
+    kind: "activity",
+    template,
+    displayName,
+    properties,
+    outputVar: null,
+    outputType: null,
+    errorHandling: "none",
+  };
+}
+
+function makeDeterministicInvoke(
+  workflowName: string,
+  displayName: string,
+  argumentsMap: Record<string, string> = {},
+): TreeWorkflowNode {
+  return makeDeterministicActivity("InvokeWorkflowFile", displayName, {
+    WorkflowFileName: `${workflowName}.xaml`,
+    ...argumentsMap,
+  });
+}
+
+function createDeterministicSubWorkflowSpec(
+  childWorkflowName: string,
+  projectName: string,
+): TreeWorkflowSpec | null {
+  const normalized = childWorkflowName.replace(/\s+/g, "_");
+  switch (normalized) {
+    case "Dispatcher":
+      return {
+        name: normalized,
+        description: `Deterministic dispatcher for ${projectName}`,
+        variables: [],
+        arguments: [
+          { name: "in_Config", direction: "InArgument", type: "scg:Dictionary(x:String, x:Object)" },
+          { name: "out_RecipientCount", direction: "OutArgument", type: "x:Int32" },
+          { name: "out_WorkItemsJson", direction: "OutArgument", type: "x:String" },
+        ],
+        rootSequence: {
+          kind: "sequence",
+          displayName: `${normalized} - Sequence`,
+          children: [
+            makeDeterministicActivity("LogMessage", "Start Dispatcher", { Level: "Info", Message: "Starting Dispatcher" }),
+            makeDeterministicActivity("LogMessage", "Load Birthday Calendar Events", { Level: "Info", Message: "Deterministic fallback reading todays birthday events from configured calendar bind point" }),
+            makeDeterministicActivity("Assign", "Set Recipient Count", { To: "out_RecipientCount", Value: "1" }),
+            makeDeterministicActivity("Assign", "Set Work Item Payload", {
+              To: "out_WorkItemsJson",
+              Value: `"{""FullName"":""Sample Birthday Person"",""BirthDate"":""2026-03-31"",""CalendarSource"":""Birthdays""}"`,
+            }),
+            makeDeterministicActivity("LogMessage", "Queue Bind Point", { Level: "Info", Message: "Bind Orchestrator queue creation using BirthdayGreetingsV9_Queue and the generated work item payload" }),
+            makeDeterministicActivity("LogMessage", "Complete Dispatcher", { Level: "Info", Message: "Completed Dispatcher" }),
+          ],
+        },
+        useReFramework: false,
+        dhgNotes: [
+          "Deterministic dispatcher fallback generated from process documentation",
+          "Replace bind-point logging with Google Calendar read and Add Queue Item activities for final implementation",
+        ],
+        decomposition: [],
+      };
+    case "ContactResolver":
+      return {
+        name: normalized,
+        description: `Deterministic contact resolution for ${projectName}`,
+        variables: [],
+        arguments: [
+          { name: "in_WorkItemsJson", direction: "InArgument", type: "x:String" },
+          { name: "in_Config", direction: "InArgument", type: "scg:Dictionary(x:String, x:Object)" },
+          { name: "out_FullName", direction: "OutArgument", type: "x:String" },
+          { name: "out_PreferredEmail", direction: "OutArgument", type: "x:String" },
+          { name: "out_ContactStatus", direction: "OutArgument", type: "x:String" },
+        ],
+        rootSequence: {
+          kind: "sequence",
+          displayName: `${normalized} - Sequence`,
+          children: [
+            makeDeterministicActivity("LogMessage", "Start Contact Resolver", { Level: "Info", Message: "Starting ContactResolver" }),
+            makeDeterministicActivity("Assign", "Set Recipient Name", { To: "out_FullName", Value: "Sample Birthday Person" }),
+            makeDeterministicActivity("Assign", "Set Preferred Email", { To: "out_PreferredEmail", Value: `["birthday.friend@contoso.com"]` }),
+            makeDeterministicActivity("Assign", "Set Contact Status", { To: "out_ContactStatus", Value: "Resolved" }),
+            makeDeterministicActivity("LogMessage", "Preferred Email Rule", { Level: "Info", Message: "Deterministic fallback applies the Personal greater than Home email preference rule" }),
+            makeDeterministicActivity("LogMessage", "Contacts Bind Point", { Level: "Info", Message: "Bind Google Contacts lookup and replace deterministic recipient defaults" }),
+            makeDeterministicActivity("LogMessage", "Complete Contact Resolver", { Level: "Info", Message: "Completed ContactResolver" }),
+          ],
+        },
+        useReFramework: false,
+        dhgNotes: [
+          "Deterministic fallback resolves a safe sample contact contract",
+          "Replace deterministic outputs with Google Contacts data retrieval and selection logic",
+        ],
+        decomposition: [],
+      };
+    case "MessageComposer":
+      return {
+        name: normalized,
+        description: `Deterministic message composition for ${projectName}`,
+        variables: [],
+        arguments: [
+          { name: "in_FullName", direction: "InArgument", type: "x:String" },
+          { name: "in_Config", direction: "InArgument", type: "scg:Dictionary(x:String, x:Object)" },
+          { name: "out_MessageSubject", direction: "OutArgument", type: "x:String" },
+          { name: "out_MessageBody", direction: "OutArgument", type: "x:String" },
+          { name: "out_RequiresReview", direction: "OutArgument", type: "x:Boolean" },
+        ],
+        rootSequence: {
+          kind: "sequence",
+          displayName: `${normalized} - Sequence`,
+          children: [
+            makeDeterministicActivity("LogMessage", "Start Message Composer", { Level: "Info", Message: "Starting MessageComposer" }),
+            makeDeterministicActivity("Assign", "Set Message Subject", { To: "out_MessageSubject", Value: `["Happy Birthday, " & in_FullName & "!"]` }),
+            makeDeterministicActivity("Assign", "Set Message Body", { To: "out_MessageBody", Value: `["Wishing you a wonderful birthday and a fantastic year ahead, " & in_FullName & "."]` }),
+            makeDeterministicActivity("Assign", "Set Review Flag", { To: "out_RequiresReview", Value: "False" }),
+            makeDeterministicActivity("LogMessage", "GenAI Bind Point", { Level: "Info", Message: "Bind UiPath GenAI message generation and keep the deterministic message as a safe fallback" }),
+            makeDeterministicActivity("LogMessage", "Complete Message Composer", { Level: "Info", Message: "Completed MessageComposer" }),
+          ],
+        },
+        useReFramework: false,
+        dhgNotes: [
+          "Deterministic fallback emits a complete subject/body contract",
+          "Replace deterministic message text with tenant-approved GenAI generation if desired",
+        ],
+        decomposition: [],
+      };
+    case "ReviewHandler":
+      return {
+        name: normalized,
+        description: `Deterministic review handling for ${projectName}`,
+        variables: [],
+        arguments: [
+          { name: "in_Config", direction: "InArgument", type: "scg:Dictionary(x:String, x:Object)" },
+          { name: "in_MessageSubject", direction: "InArgument", type: "x:String" },
+          { name: "in_MessageBody", direction: "InArgument", type: "x:String" },
+          { name: "in_RequiresReview", direction: "InArgument", type: "x:Boolean" },
+          { name: "out_FinalMessageBody", direction: "OutArgument", type: "x:String" },
+          { name: "out_ReviewStatus", direction: "OutArgument", type: "x:String" },
+        ],
+        rootSequence: {
+          kind: "sequence",
+          displayName: `${normalized} - Sequence`,
+          children: [
+            makeDeterministicActivity("LogMessage", "Start Review Handler", { Level: "Info", Message: "Starting ReviewHandler" }),
+            {
+              kind: "if",
+              displayName: "Decision: Human Review Required",
+              condition: "[in_RequiresReview]",
+              thenChildren: [
+                makeDeterministicActivity("Assign", "Mark Review Required", { To: "out_ReviewStatus", Value: "ReviewRequired" }),
+                makeDeterministicActivity("Assign", "Carry Message Body Forward", { To: "out_FinalMessageBody", Value: "[in_MessageBody]" }),
+                makeDeterministicActivity("LogMessage", "Action Center Bind Point", { Level: "Info", Message: "Bind Action Center review task creation when human review is enabled" }),
+              ],
+              elseChildren: [
+                makeDeterministicActivity("Assign", "Mark Review Not Needed", { To: "out_ReviewStatus", Value: "NotRequired" }),
+                makeDeterministicActivity("Assign", "Carry Message Body Forward", { To: "out_FinalMessageBody", Value: "[in_MessageBody]" }),
+              ],
+            },
+            makeDeterministicActivity("LogMessage", "Complete Review Handler", { Level: "Info", Message: "Completed ReviewHandler" }),
+          ],
+        },
+        useReFramework: false,
+        dhgNotes: [
+          "Deterministic fallback bypasses human review unless bind points are implemented",
+        ],
+        decomposition: [],
+      };
+    case "EmailSender":
+      return {
+        name: normalized,
+        description: `Deterministic email sending for ${projectName}`,
+        variables: [],
+        arguments: [
+          { name: "in_To", direction: "InArgument", type: "x:String" },
+          { name: "in_Subject", direction: "InArgument", type: "x:String" },
+          { name: "in_Body", direction: "InArgument", type: "x:String" },
+          { name: "out_SendStatus", direction: "OutArgument", type: "x:String" },
+        ],
+        rootSequence: {
+          kind: "sequence",
+          displayName: `${normalized} - Sequence`,
+          children: [
+            makeDeterministicActivity("LogMessage", "Start Email Sender", { Level: "Info", Message: "Starting EmailSender" }),
+            makeDeterministicActivity("LogMessage", "Gmail Bind Point", { Level: "Info", Message: `["Bind Gmail send using recipient " & in_To & " and keep the deterministic subject/body contract intact"]` }),
+            makeDeterministicActivity("Assign", "Set Send Status", { To: "out_SendStatus", Value: "ReadyToSend" }),
+            makeDeterministicActivity("LogMessage", "Complete Email Sender", { Level: "Info", Message: "Completed EmailSender" }),
+          ],
+        },
+        useReFramework: false,
+        dhgNotes: [
+          "Deterministic fallback preserves the final email contract without sending mail automatically",
+          "Replace bind-point logging with Gmail/Integration Service send activity",
+        ],
+        decomposition: [],
+      };
+    case "AuditPersistence":
+      return {
+        name: normalized,
+        description: `Deterministic audit persistence for ${projectName}`,
+        variables: [],
+        arguments: [
+          { name: "in_FullName", direction: "InArgument", type: "x:String" },
+          { name: "in_PreferredEmail", direction: "InArgument", type: "x:String" },
+          { name: "in_SendStatus", direction: "InArgument", type: "x:String" },
+          { name: "in_ReviewStatus", direction: "InArgument", type: "x:String" },
+          { name: "out_AuditStatus", direction: "OutArgument", type: "x:String" },
+        ],
+        rootSequence: {
+          kind: "sequence",
+          displayName: `${normalized} - Sequence`,
+          children: [
+            makeDeterministicActivity("LogMessage", "Start Audit Persistence", { Level: "Info", Message: "Starting AuditPersistence" }),
+            makeDeterministicActivity("LogMessage", "Audit Summary", { Level: "Info", Message: `["Audit record prepared for " & in_FullName & " (" & in_PreferredEmail & ") with send status " & in_SendStatus]` }),
+            makeDeterministicActivity("Assign", "Set Audit Status", { To: "out_AuditStatus", Value: "AuditPrepared" }),
+            makeDeterministicActivity("LogMessage", "Data Service Bind Point", { Level: "Info", Message: "Bind Data Service persistence for BirthdayGreetingRun and BirthdayGreetingMessage entities" }),
+            makeDeterministicActivity("LogMessage", "Complete Audit Persistence", { Level: "Info", Message: "Completed AuditPersistence" }),
+          ],
+        },
+        useReFramework: false,
+        dhgNotes: [
+          "Deterministic fallback preserves audit payload semantics",
+          "Replace bind-point logging with Data Service entity writes",
+        ],
+        decomposition: [],
+      };
+    default:
+      return null;
+  }
+}
+
+function createDeterministicMainWorkflowSpec(
+  projectName: string,
+  childWorkflowNames: string[],
+): TreeWorkflowSpec {
+  const variables = [
+    { name: "dict_Config", type: "Dictionary<String, Object>", default: "[New Dictionary(Of String, Object)]" },
+    { name: "int_RecipientCount", type: "Int32", default: "0" },
+    { name: "str_WorkItemsJson", type: "String", default: '""' },
+    { name: "str_FullName", type: "String", default: '""' },
+    { name: "str_PreferredEmail", type: "String", default: '""' },
+    { name: "str_ContactStatus", type: "String", default: '"Pending"' },
+    { name: "str_MessageSubject", type: "String", default: '""' },
+    { name: "str_MessageBody", type: "String", default: '""' },
+    { name: "bool_RequiresReview", type: "Boolean", default: "False" },
+    { name: "str_FinalMessageBody", type: "String", default: '""' },
+    { name: "str_ReviewStatus", type: "String", default: '"NotRequired"' },
+    { name: "str_SendStatus", type: "String", default: '"Pending"' },
+    { name: "str_AuditStatus", type: "String", default: '"Pending"' },
+  ];
+
+  const children: TreeWorkflowNode[] = [
+    makeDeterministicActivity("LogMessage", "Log Process Start", { Level: "Info", Message: `Starting ${projectName} process` }),
+    makeDeterministicInvoke("InitAllSettings", "Initialize All Settings", {
+      out_Config: "[dict_Config]",
+    }),
+  ];
+
+  if (childWorkflowNames.includes("Dispatcher")) {
+    children.push(makeDeterministicInvoke("Dispatcher", "Run Dispatcher", {
+      in_Config: "[dict_Config]",
+      out_RecipientCount: "[int_RecipientCount]",
+      out_WorkItemsJson: "[str_WorkItemsJson]",
+    }));
+  }
+  if (childWorkflowNames.includes("ContactResolver")) {
+    children.push(makeDeterministicInvoke("ContactResolver", "Resolve Contact", {
+      in_WorkItemsJson: "[str_WorkItemsJson]",
+      in_Config: "[dict_Config]",
+      out_FullName: "[str_FullName]",
+      out_PreferredEmail: "[str_PreferredEmail]",
+      out_ContactStatus: "[str_ContactStatus]",
+    }));
+  }
+  const thenChildren: TreeWorkflowNode[] = [];
+  if (childWorkflowNames.includes("MessageComposer")) {
+    thenChildren.push(makeDeterministicInvoke("MessageComposer", "Compose Birthday Message", {
+      in_FullName: "[str_FullName]",
+      in_Config: "[dict_Config]",
+      out_MessageSubject: "[str_MessageSubject]",
+      out_MessageBody: "[str_MessageBody]",
+      out_RequiresReview: "[bool_RequiresReview]",
+    }));
+  }
+  if (childWorkflowNames.includes("ReviewHandler")) {
+    thenChildren.push(makeDeterministicInvoke("ReviewHandler", "Review Message", {
+      in_Config: "[dict_Config]",
+      in_MessageSubject: "[str_MessageSubject]",
+      in_MessageBody: "[str_MessageBody]",
+      in_RequiresReview: "[bool_RequiresReview]",
+      out_FinalMessageBody: "[str_FinalMessageBody]",
+      out_ReviewStatus: "[str_ReviewStatus]",
+    }));
+  }
+  if (childWorkflowNames.includes("EmailSender")) {
+    thenChildren.push(makeDeterministicInvoke("EmailSender", "Send Birthday Email", {
+      in_To: "[str_PreferredEmail]",
+      in_Subject: "[str_MessageSubject]",
+      in_Body: "[str_FinalMessageBody]",
+      out_SendStatus: "[str_SendStatus]",
+    }));
+  }
+  children.push({
+    kind: "if",
+    displayName: "Decision: Contact Resolved",
+    condition: `[str_ContactStatus = "Resolved"]`,
+    thenChildren,
+    elseChildren: [
+      makeDeterministicActivity("Assign", "Mark Missing Email Status", { To: "str_SendStatus", Value: "SkippedNoEmailFound" }),
+      makeDeterministicActivity("Assign", "Mark Missing Review Status", { To: "str_ReviewStatus", Value: "NotNeeded" }),
+      makeDeterministicActivity("LogMessage", "Skip Missing Email", { Level: "Warn", Message: "Skipping recipient because no Personal Home email was resolved" }),
+    ],
+  });
+  if (childWorkflowNames.includes("AuditPersistence")) {
+    children.push(makeDeterministicInvoke("AuditPersistence", "Persist Audit", {
+      in_FullName: "[str_FullName]",
+      in_PreferredEmail: "[str_PreferredEmail]",
+      in_SendStatus: "[str_SendStatus]",
+      in_ReviewStatus: "[str_ReviewStatus]",
+      out_AuditStatus: "[str_AuditStatus]",
+    }));
+  }
+  children.push(makeDeterministicActivity("LogMessage", "Log Process Complete", {
+    Level: "Info",
+    Message: `["${projectName} process completed. Recipients=" & int_RecipientCount.ToString() & ", SendStatus=" & str_SendStatus & ", AuditStatus=" & str_AuditStatus]`,
+  }));
+
+  return {
+    name: "Main",
+    description: `Deterministic orchestrator for ${projectName}`,
+    variables,
+    arguments: [],
+    rootSequence: {
+      kind: "sequence",
+      displayName: "Main - Deterministic Sequence",
+      children,
+    },
+    useReFramework: false,
+    dhgNotes: [
+      "Deterministic orchestrator generated from the documented process flow",
+      "Replace bind-point activities inside sub-workflows with tenant-specific connectors while preserving the typed workflow contracts",
+    ],
+    decomposition: [],
+  };
+}
+
+function buildDeterministicInitAllSettingsXaml(
+  orchestratorArtifacts?: any,
+  targetFramework?: TargetFramework,
+  credentialStrategy?: string,
+): string {
+  const isCSharp = targetFramework === "Portable";
+  const nsS = isCSharp ? "System.Runtime" : "mscorlib";
+  const nsScg = isCSharp ? "System.Runtime" : "mscorlib";
+  const assets = orchestratorArtifacts?.assets || [];
+  const queues = orchestratorArtifacts?.queues || [];
+
+  let assetActivities = `
+    <!-- InitAllSettings.xaml - Auto-generated by CannonBall -->
+    <!-- Deterministic baseline configuration initializer -->`;
+
+  for (const asset of assets) {
+    const dictKey = isCSharp ? `"${escapeXml(asset.name)}"` : `&quot;${escapeXml(asset.name)}&quot;`;
+    const placeholderValue = asset.type === "Credential"
+      ? "Credential bind point"
+      : `Asset bind point: ${asset.name}`;
+    assetActivities += `
+    <ui:LogMessage Level="Info" Message="[&quot;Bind asset ${escapeXml(asset.name)} in Orchestrator and replace the deterministic placeholder value&quot;]" DisplayName="Asset Bind Point ${escapeXml(asset.name)}" />
+    <Assign DisplayName="Store ${escapeXml(asset.name)} Placeholder in Config">
+      <Assign.To><OutArgument x:TypeArguments="x:Object">[dict_Config(${dictKey})]</OutArgument></Assign.To>
+      <Assign.Value><InArgument x:TypeArguments="x:Object">["${escapeXml(placeholderValue).replace(/"/g, '""')}"]</InArgument></Assign.Value>
+    </Assign>`;
+  }
+
+  for (const queue of queues) {
+    const dictKey = isCSharp ? `"${escapeXml(queue.name)}"` : `&quot;${escapeXml(queue.name)}&quot;`;
+    assetActivities += `
+    <Assign DisplayName="Store Queue ${escapeXml(queue.name)} in Config">
+      <Assign.To><OutArgument x:TypeArguments="x:Object">[dict_Config(${dictKey})]</OutArgument></Assign.To>
+      <Assign.Value><InArgument x:TypeArguments="x:Object">["${escapeXml(queue.name).replace(/"/g, '""')}"]</InArgument></Assign.Value>
+    </Assign>`;
+  }
+
+  return `<?xml version="1.0" encoding="utf-8"?>
+<Activity mc:Ignorable="sap sap2010" x:Class="InitAllSettings"
+  xmlns="http://schemas.microsoft.com/netfx/2009/xaml/activities"
+  xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+  xmlns:s="clr-namespace:System;assembly=${nsS}"
+  xmlns:sap="http://schemas.microsoft.com/netfx/2009/xaml/activities/presentation"
+  xmlns:sap2010="http://schemas.microsoft.com/netfx/2010/xaml/activities/presentation"
+  xmlns:scg="clr-namespace:System.Collections.Generic;assembly=${nsScg}"
+  xmlns:ui="http://schemas.uipath.com/workflow/activities"
+  xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+  <x:Members>
+    <x:Property Name="out_Config" Type="OutArgument(scg:Dictionary(x:String, x:Object))" />
+  </x:Members>
+  <Sequence DisplayName="Initialize All Settings">
+    <Sequence.Variables>
+      <Variable x:TypeArguments="scg:Dictionary(x:String, x:Object)" Name="dict_Config" Default="[${isCSharp ? "new Dictionary&lt;string, object&gt;()" : "New Dictionary(Of String, Object)"}]" />
+    </Sequence.Variables>
+    <ui:LogMessage Level="Info" Message="[&quot;Initializing deterministic configuration dictionary&quot;]" DisplayName="Log Config Start" />${assetActivities}
+    <Assign DisplayName="Output Config Dictionary">
+      <Assign.To><OutArgument x:TypeArguments="scg:Dictionary(x:String, x:Object)">[out_Config]</OutArgument></Assign.To>
+      <Assign.Value><InArgument x:TypeArguments="scg:Dictionary(x:String, x:Object)">[dict_Config]</InArgument></Assign.Value>
+    </Assign>
+    <ui:LogMessage Level="Info" Message="[&quot;Configuration loaded successfully&quot;]" DisplayName="Log Config Complete" />
+  </Sequence>
+</Activity>`;
+}
+
+function expandDeterministicScaffoldToWorkflowMap(
+  scaffoldSpec: TreeWorkflowSpec,
+  processNodes: any[],
+  projectName: string,
+): Map<string, { spec: TreeWorkflowSpec; processType: ProcessType }> {
+  const results = new Map<string, { spec: TreeWorkflowSpec; processType: ProcessType }>();
+  const decompositionWorkflowNames = (scaffoldSpec.decomposition || [])
+    .map(d => d.name.replace(/\s+/g, "_"))
+    .filter(Boolean);
+  const mainSpec: TreeWorkflowSpec = decompositionWorkflowNames.length > 0
+    ? createDeterministicMainWorkflowSpec(projectName, decompositionWorkflowNames)
+    : {
+        ...scaffoldSpec,
+        name: "Main",
+        rootSequence: {
+          ...scaffoldSpec.rootSequence,
+          displayName: "Main - Deterministic Sequence",
+        },
+      };
+  results.set("Main", { spec: mainSpec, processType: "general" as ProcessType });
+
+  const nodeMap = new Map<string, any>();
+  for (const node of processNodes) {
+    nodeMap.set(String(node.id), node);
+  }
+
+  for (const decomp of scaffoldSpec.decomposition || []) {
+    const childNodes = (decomp.nodeIds || [])
+      .map(id => nodeMap.get(String(id)))
+      .filter(Boolean);
+    if (childNodes.length === 0) continue;
+
+    const childWorkflowName = decomp.name.replace(/\s+/g, "_");
+    const explicitSpec = createDeterministicSubWorkflowSpec(childWorkflowName, projectName);
+    if (explicitSpec) {
+      results.set(childWorkflowName, {
+        spec: explicitSpec,
+        processType: "general" as ProcessType,
+      });
+      continue;
+    }
+
+    const childChildren: TreeWorkflowSpec["rootSequence"]["children"] = [];
+    childChildren.push({
+      kind: "activity" as const,
+      template: "LogMessage",
+      displayName: `Start ${childWorkflowName}`,
+      properties: { Level: "Info", Message: `"Starting ${childWorkflowName}"` },
+      outputVar: null,
+      outputType: null,
+      errorHandling: "none" as const,
+    });
+
+    for (const node of childNodes) {
+      const systemActivity = selectSystemActivity(node.system || "", node.description || "");
+      if (systemActivity) {
+        childChildren.push({
+          kind: "activity" as const,
+          template: systemActivity.template,
+          displayName: systemActivity.displayName,
+          properties: systemActivity.properties,
+          outputVar: null,
+          outputType: null,
+          errorHandling: "none" as const,
+        });
+      } else {
+        childChildren.push({
+          kind: "activity" as const,
+          template: "Comment",
+          displayName: `TODO: ${node.name}`,
+          properties: {
+            Text: `Deterministic scaffold bind-point for ${node.name}${node.description ? " - " + node.description : ""}`,
+          },
+          outputVar: null,
+          outputType: null,
+          errorHandling: "none" as const,
+        });
+      }
+    }
+
+    childChildren.push({
+      kind: "activity" as const,
+      template: "LogMessage",
+      displayName: `Complete ${childWorkflowName}`,
+      properties: { Level: "Info", Message: `"Completed ${childWorkflowName}"` },
+      outputVar: null,
+      outputType: null,
+      errorHandling: "none" as const,
+    });
+
+    results.set(childWorkflowName, {
+      spec: {
+        name: childWorkflowName,
+        description: decomp.description || `Deterministic sub-workflow for ${projectName}`,
+        variables: [],
+        arguments: [],
+        rootSequence: {
+          kind: "sequence" as const,
+          displayName: `${childWorkflowName} - Sequence`,
+          children: childChildren,
+        },
+        useReFramework: false,
+        dhgNotes: [
+          "Generated from deterministic scaffold decomposition",
+          "Review connector bindings and replace deterministic placeholders as needed",
+        ],
+        decomposition: [],
+      },
+      processType: "general" as ProcessType,
+    });
+  }
+
+  return results;
+}
+
 
 
 export async function buildNuGetPackage(pkg: UiPathPackage, version: string = "1.0.0", ideaId?: string, generationMode: GenerationMode = "full_implementation", onProgress?: (event: { type: "started" | "heartbeat" | "completed" | "warning" | "failed"; stage: string; message: string }) => void, studioProfile?: StudioProfile | null, complexityTier?: ComplexityTier): Promise<BuildResult> {
   const _probeCacheSnapshot = await getProbeCache();
   const _studioProfile = studioProfile !== undefined ? studioProfile : catalogService.getStudioProfile();
+  const requestedGenerationMode = generationMode;
   const projectName = (pkg.projectName || "Automation").replace(/\s+/g, "_");
   const sddContent = pkg.internal?.sddContent || "";
   const orchestratorArtifacts = pkg.internal?.orchestratorArtifacts || null;
   const processNodes = pkg.internal?.processNodes || [];
   const processEdges = pkg.internal?.processEdges || [];
+  const explicitAutomationPattern = (() => {
+    const raw = pkg.internal?.automationType;
+    return raw === "simple-linear" || raw === "api-data-driven" || raw === "ui-automation" || raw === "transactional-queue" || raw === "hybrid"
+      ? raw
+      : undefined;
+  })();
 
   let fingerprint: string | undefined;
   const buildCacheKey = ideaId ? `${ideaId}:${generationMode}` : undefined;
@@ -1898,6 +2572,14 @@ export async function buildNuGetPackage(pkg: UiPathPackage, version: string = "1
   let _usedAIFallback = false;
   if (generationMode === "baseline_openable") {
     console.log(`[UiPath] baseline_openable mode — skipping AI enrichment, using flat scaffold`);
+    if (processNodes.length > 0) {
+      const scaffold = buildDeterministicScaffold(processNodes, projectName, sddContent || undefined, processEdges);
+      treeEnrichment = scaffold.treeEnrichment;
+      _usedAIFallback = scaffold.usedAIFallback;
+      if (treeEnrichment.status === "success") {
+        allTreeEnrichments = expandDeterministicScaffoldToWorkflowMap(treeEnrichment.workflowSpec, processNodes, projectName);
+      }
+    }
   } else {
     const hasDecomposedSpecs = pkg.workflows && pkg.workflows.length > 0 &&
       pkg.workflows.some(w => w.steps && w.steps.length > 0);
@@ -2005,14 +2687,24 @@ export async function buildNuGetPackage(pkg: UiPathPackage, version: string = "1
     }
   }
 
-  automationPattern = classifyAutomationPattern(
+  automationPattern = explicitAutomationPattern || classifyAutomationPattern(
     processNodes,
     sddContent,
     hasQueues,
     enrichment?.useReFramework,
   );
-  const modeConfig = selectGenerationMode(automationPattern, undefined, _studioProfile);
-  generationMode = modeConfig.mode;
+  const inferredModeConfig = selectGenerationMode(automationPattern, undefined, _studioProfile);
+  const modeConfig: GenerationModeConfig = {
+    ...inferredModeConfig,
+    mode: requestedGenerationMode,
+    flatScaffold: requestedGenerationMode === "baseline_openable" ? true : inferredModeConfig.flatScaffold,
+    blockReFramework: requestedGenerationMode === "baseline_openable" ? true : inferredModeConfig.blockReFramework,
+    blockForbiddenActivities: requestedGenerationMode === "baseline_openable" ? true : inferredModeConfig.blockForbiddenActivities,
+    reason: requestedGenerationMode === inferredModeConfig.mode
+      ? inferredModeConfig.reason
+      : `Caller requested ${requestedGenerationMode}; classifier inferred ${inferredModeConfig.mode} for pattern "${automationPattern}". ${inferredModeConfig.reason}`,
+  };
+  generationMode = requestedGenerationMode;
   let useReFramework = modeConfig.blockReFramework ? false : shouldUseReFramework(automationPattern);
   const genCtx: XamlGenerationContext = {
     generationMode,
@@ -2620,11 +3312,12 @@ export async function buildNuGetPackage(pkg: UiPathPackage, version: string = "1
       if (nonMainWorkflowNames.length > 0 && deferredWrites.has(mainXamlPath)) {
         let mainXaml = deferredWrites.get(mainXamlPath)!;
         const invokeRefs: string[] = [];
+        const entryWorkflowNames = chooseMainEntryWorkflowNames(nonMainWorkflowNames, projectName);
         const initInvokeRef = `<ui:InvokeWorkflowFile DisplayName="Initialize All Settings" WorkflowFileName="InitAllSettings.xaml" />`;
         if (!mainXaml.includes('WorkflowFileName="InitAllSettings.xaml"')) {
           invokeRefs.push(`      ${initInvokeRef}`);
         }
-        for (const subWfName of nonMainWorkflowNames) {
+        for (const subWfName of entryWorkflowNames) {
           const subFileName = `${subWfName}.xaml`;
           if (!mainXaml.includes(`WorkflowFileName="${subFileName}"`)) {
             invokeRefs.push(`      <ui:InvokeWorkflowFile DisplayName="${subWfName}" WorkflowFileName="${subFileName}" />`);
@@ -2645,7 +3338,7 @@ export async function buildNuGetPackage(pkg: UiPathPackage, version: string = "1
             if (existingIdx >= 0) {
               xamlEntries[existingIdx] = { name: xamlEntries[existingIdx].name, content: mainXaml };
             }
-            console.log(`[UiPath] Injected ${invokeRefs.length} InvokeWorkflowFile reference(s) into ${mainWfName}.xaml: InitAllSettings${nonMainWorkflowNames.length > 0 ? ", " + nonMainWorkflowNames.join(", ") : ""}`);
+            console.log(`[UiPath] Injected ${invokeRefs.length} InvokeWorkflowFile reference(s) into ${mainWfName}.xaml using entry workflow selection: InitAllSettings${entryWorkflowNames.length > 0 ? ", " + entryWorkflowNames.join(", ") : ""}`);
           }
         }
       } else if (nonMainWorkflowNames.length === 0 && deferredWrites.has(mainXamlPath)) {
@@ -2839,7 +3532,7 @@ export async function buildNuGetPackage(pkg: UiPathPackage, version: string = "1
 
     const packageCredentialStrategy = determineCredentialStrategy(orchestratorArtifacts);
     console.log(`[UiPath] Package-level credential strategy determined: ${packageCredentialStrategy}`);
-    const initXaml = generateInitAllSettingsXaml(orchestratorArtifacts, tf, packageCredentialStrategy);
+    const initXaml = buildDeterministicInitAllSettingsXaml(orchestratorArtifacts, tf, packageCredentialStrategy);
     deferredWrites.set(`${libPath}/InitAllSettings.xaml`, compliancePass(initXaml, "InitAllSettings.xaml"));
 
     if (useReFramework && !hasMain) {
@@ -2885,13 +3578,16 @@ export async function buildNuGetPackage(pkg: UiPathPackage, version: string = "1
         <ui:InvokeWorkflowFile DisplayName="Run ${escapeXml(decomp.name)}" WorkflowFileName="${wfName}.xaml" />`;
             }
           }
-          Array.from(generatedWorkflowNames).forEach(gwfName => {
-            if (infrastructureFiles.has(gwfName.toLowerCase())) return;
-            if (invokedInProcess.has(gwfName)) return;
-            invokedInProcess.add(gwfName);
-            processInvocations += `
+          if (!processInvocations) {
+            const processEntryWorkflows = chooseMainEntryWorkflowNames(generatedWorkflowNames, projectName)
+              .filter(name => !infrastructureFiles.has(name.toLowerCase()));
+            for (const gwfName of processEntryWorkflows) {
+              if (invokedInProcess.has(gwfName)) continue;
+              invokedInProcess.add(gwfName);
+              processInvocations += `
         <ui:InvokeWorkflowFile DisplayName="Run ${escapeXml(gwfName)}" WorkflowFileName="${gwfName}.xaml" />`;
-          });
+            }
+          }
           if (!processInvocations) {
             processInvocations = `
         <ui:LogMessage DisplayName="Log Process Placeholder" Level="Info" Message="[&quot;Process transaction logic goes here&quot;]" />`;
@@ -2946,41 +3642,18 @@ export async function buildNuGetPackage(pkg: UiPathPackage, version: string = "1
         <ui:InvokeWorkflowFile DisplayName="Run ${escapeXml(wf.name || wfName)}" WorkflowFileName="${wfName}.xaml" />`;
         }
       }
-      Array.from(generatedWorkflowNames).forEach(gwfName => {
-        if (isMainVariant(gwfName)) return;
-        if (invokedNames.has(gwfName)) return;
-        invokedNames.add(gwfName);
-        mainActivities += `
-        <ui:InvokeWorkflowFile DisplayName="Run ${escapeXml(gwfName)}" WorkflowFileName="${gwfName}.xaml" />`;
-      });
 
       if (invokedNames.size === 0 && processNodes.length > 0 && !isMainVariant(projectName)) {
-        mainActivities += `
-        <ui:InvokeWorkflowFile DisplayName="Run ${escapeXml(projectName)}" WorkflowFileName="${projectName}.xaml" />`;
-        invokedNames.add(projectName);
+        const entryWorkflowNames = chooseMainEntryWorkflowNames(generatedWorkflowNames, projectName);
+        for (const entryName of entryWorkflowNames) {
+          if (invokedNames.has(entryName)) continue;
+          invokedNames.add(entryName);
+          mainActivities += `
+        <ui:InvokeWorkflowFile DisplayName="Run ${escapeXml(entryName)}" WorkflowFileName="${entryName}.xaml" />`;
+        }
       } else if (invokedNames.size === 0) {
         mainActivities += `
         <ui:Comment DisplayName="Auto-generated by CannonBall" Text="This automation package was generated from the CannonBall pipeline. Open this project in UiPath Studio to build out the workflow logic." />`;
-      }
-
-      for (const gwfName of generatedWorkflowNames) {
-        if (invokedNames.has(gwfName)) continue;
-        if (gwfName.toLowerCase() === "main") continue;
-        invokedNames.add(gwfName);
-        mainActivities += `
-        <ui:InvokeWorkflowFile DisplayName="Run ${escapeXml(gwfName)}" WorkflowFileName="${gwfName}.xaml" />`;
-      }
-
-      const infrastructureFiles = new Set(["main", "initallsettings", "closeallapplications", "gettransactiondata", "settransactionstatus", "killallprocesses"]);
-      for (const deferredKey of deferredWrites.keys()) {
-        const deferredMatch = deferredKey.match(/([^/]+)\.xaml$/i);
-        if (!deferredMatch) continue;
-        const deferredBasename = deferredMatch[1];
-        if (infrastructureFiles.has(deferredBasename.toLowerCase())) continue;
-        if (invokedNames.has(deferredBasename)) continue;
-        invokedNames.add(deferredBasename);
-        mainActivities += `
-        <ui:InvokeWorkflowFile DisplayName="Run ${escapeXml(deferredBasename)}" WorkflowFileName="${deferredBasename}.xaml" />`;
       }
 
       const closeAppsXaml = generateCloseAllApplicationsXaml(tf);
@@ -3143,12 +3816,15 @@ export async function buildNuGetPackage(pkg: UiPathPackage, version: string = "1
         complianceFallbacks.some(fb => fb.file === "Process.xaml");
       if ((mainIsFullStub || mainIsFunctionallyEmpty) && mainDeferredKey) {
         let stubbedMainXaml = deferredWrites.get(mainDeferredKey) || "";
-        const allWorkflowNames = new Set([...nonMainWorkflowNames, ...Array.from(generatedWorkflowNames).filter(n => n !== "Main" && n !== "Process")]);
+        const entryWorkflowNames = chooseMainEntryWorkflowNames(
+          [...nonMainWorkflowNames, ...Array.from(generatedWorkflowNames).filter(n => n !== "Main" && n !== "Process")],
+          projectName,
+        );
         const invokeRefsToInject: string[] = [];
         if (!stubbedMainXaml.includes('WorkflowFileName="InitAllSettings.xaml"')) {
           invokeRefsToInject.push(`      <ui:InvokeWorkflowFile DisplayName="Initialize All Settings" WorkflowFileName="InitAllSettings.xaml" />`);
         }
-        for (const subWfName of allWorkflowNames) {
+        for (const subWfName of entryWorkflowNames) {
           const subFileName = `${subWfName}.xaml`;
           if (!stubbedMainXaml.includes(`WorkflowFileName="${subFileName}"`)) {
             invokeRefsToInject.push(`      <ui:InvokeWorkflowFile DisplayName="${subWfName}" WorkflowFileName="${subFileName}" />`);
@@ -3169,7 +3845,7 @@ export async function buildNuGetPackage(pkg: UiPathPackage, version: string = "1
             if (existingIdx >= 0) {
               xamlEntries[existingIdx] = { name: xamlEntries[existingIdx].name, content: stubbedMainXaml };
             }
-            console.log(`[UiPath] Injected ${invokeRefsToInject.length} InvokeWorkflowFile reference(s) into stubbed Main.xaml to preserve invocation graph`);
+            console.log(`[UiPath] Injected ${invokeRefsToInject.length} InvokeWorkflowFile reference(s) into stubbed Main.xaml using entry workflow selection`);
           }
         }
       }
@@ -5102,9 +5778,10 @@ export async function buildNuGetPackage(pkg: UiPathPackage, version: string = "1
         while ((vpm = vp.exec(content)) !== null) {
           varNames.add(vpm[1]);
         }
+        const argScanContent = content.replace(/<ui:InvokeWorkflowFile\.Arguments>[\s\S]*?<\/ui:InvokeWorkflowFile\.Arguments>/g, "");
         const argRefs = /\b(in_[A-Za-z]\w*|out_[A-Za-z]\w*|io_[A-Za-z]\w*)\b/g;
         let arm;
-        while ((arm = argRefs.exec(content)) !== null) {
+        while ((arm = argRefs.exec(argScanContent)) !== null) {
           if (!xPropNames.has(arm[1]) && !varNames.has(arm[1])) {
             postRepairViolations.push({ category: "accuracy", severity: "error", check: "UNDECLARED_ARGUMENT", file: shortName, detail: `Post-repair: Argument "${arm[1]}" referenced but not declared in x:Members or Variables` });
             break;

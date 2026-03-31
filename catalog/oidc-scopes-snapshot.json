@@ -1,16 +1,112 @@
 {
-  "fetchedAt": "2026-03-31T03:48:05.111Z",
+  "fetchedAt": "2026-03-31T07:50:33.099Z",
   "source": "https://cloud.uipath.com/identity_/.well-known/openid-configuration",
   "scopeFamilies": {
+    "AIC": {
+      "prefix": "AIC",
+      "scopes": [
+        "AIC.Project.Create",
+        "AIC.Project.View",
+        "AIC.Project.Edit",
+        "AIC.Project.Delete",
+        "AIC.Dataset.Create",
+        "AIC.Dataset.View",
+        "AIC.Dataset.Edit",
+        "AIC.Dataset.Delete",
+        "AIC.MLPackages.Create",
+        "AIC.MLPackages.View",
+        "AIC.MLPackages.Edit",
+        "AIC.MLPackages.Delete",
+        "AIC.MLSkills.Create",
+        "AIC.MLSkills.View",
+        "AIC.MLSkills.Edit",
+        "AIC.MLSkills.Delete",
+        "AIC.Pipelines.Create",
+        "AIC.Pipelines.View",
+        "AIC.Pipelines.Edit",
+        "AIC.Pipelines.Delete"
+      ],
+      "mappedServiceResourceType": "AI"
+    },
+    "Audit": {
+      "prefix": "Audit",
+      "scopes": [
+        "Audit.Write",
+        "Audit.Read"
+      ]
+    },
+    "PM": {
+      "prefix": "PM",
+      "scopes": [
+        "PM.Audit",
+        "PM.Audit.Read",
+        "PM.Group",
+        "PM.Group.Read",
+        "PM.Group.Write",
+        "PM.RobotAccount",
+        "PM.RobotAccount.Read",
+        "PM.RobotAccount.Write",
+        "PM.Setting",
+        "PM.Setting.Read",
+        "PM.Setting.Write",
+        "PM.User",
+        "PM.User.Read",
+        "PM.User.Write",
+        "PM.UserLoginAttempt",
+        "PM.UserLoginAttempt.Read",
+        "PM.License",
+        "PM.License.Read",
+        "PM.License.Write",
+        "PM.Security",
+        "PM.AuthSetting",
+        "PM.OAuthApp",
+        "PM.OAuthApp.Read",
+        "PM.OAuthApp.Write",
+        "PM.OAuthAppSecret.Write",
+        "PM.Scim"
+      ],
+      "mappedServiceResourceType": "IDENTITY"
+    },
+    "AT": {
+      "prefix": "AT",
+      "scopes": [
+        "AT.TrackOperations"
+      ]
+    },
     "DataService": {
       "prefix": "DataService",
       "scopes": [
+        "DataService.Default",
         "DataService.Schema.Read",
         "DataService.Data.Read",
-        "DataService.Data.Write",
-        "DataService.Default"
+        "DataService.Data.Write"
       ],
       "mappedServiceResourceType": "DF"
+    },
+    "ECS": {
+      "prefix": "ECS",
+      "scopes": [
+        "ECS.PartitionManagement"
+      ]
+    },
+    "Insights": {
+      "prefix": "Insights",
+      "scopes": [
+        "Insights.RealTimeData"
+      ]
+    },
+    "License": {
+      "prefix": "License",
+      "scopes": [
+        "License.Read",
+        "License.Write"
+      ]
+    },
+    "LLMGateway": {
+      "prefix": "LLMGateway",
+      "scopes": [
+        "LLMGateway.PartitionMove"
+      ]
     },
     "OR": {
       "prefix": "OR",
@@ -93,9 +189,19 @@
       ],
       "mappedServiceResourceType": "OR"
     },
+    "StudioWebS2S": {
+      "prefix": "StudioWebS2S",
+      "scopes": [
+        "StudioWebS2S.Project.CRUD",
+        "StudioWebS2S.Workflow.CRUD",
+        "StudioWebS2S.Share.CRUD",
+        "StudioWebS2S.OrganizationMove"
+      ]
+    },
     "TM": {
       "prefix": "TM",
       "scopes": [
+        "TM.PartitionMove",
         "TM.Users",
         "TM.Users.Read",
         "TM.Users.Write",
@@ -135,7 +241,6 @@
         "TM.ObjectLabels",
         "TM.ObjectLabels.Read",
         "TM.ObjectLabels.Write",
-        "TM.PartitionMove",
         "TM.AuthZServiceSnapshotSync",
         "TM.PerformanceScenarios",
         "TM.PerformanceScenarios.Read",
@@ -145,111 +250,6 @@
         "TM.PerformanceScenarioExecutions.Write"
       ],
       "mappedServiceResourceType": "TM"
-    },
-    "PM": {
-      "prefix": "PM",
-      "scopes": [
-        "PM.Audit",
-        "PM.Audit.Read",
-        "PM.Group",
-        "PM.Group.Read",
-        "PM.Group.Write",
-        "PM.RobotAccount",
-        "PM.RobotAccount.Read",
-        "PM.RobotAccount.Write",
-        "PM.Setting",
-        "PM.Setting.Read",
-        "PM.Setting.Write",
-        "PM.User",
-        "PM.User.Read",
-        "PM.User.Write",
-        "PM.UserLoginAttempt",
-        "PM.UserLoginAttempt.Read",
-        "PM.License",
-        "PM.License.Read",
-        "PM.License.Write",
-        "PM.Security",
-        "PM.AuthSetting",
-        "PM.OAuthApp",
-        "PM.OAuthApp.Read",
-        "PM.OAuthApp.Write",
-        "PM.OAuthAppSecret.Write",
-        "PM.Scim"
-      ],
-      "mappedServiceResourceType": "IDENTITY"
-    },
-    "AIC": {
-      "prefix": "AIC",
-      "scopes": [
-        "AIC.Project.Create",
-        "AIC.Project.View",
-        "AIC.Project.Edit",
-        "AIC.Project.Delete",
-        "AIC.Dataset.Create",
-        "AIC.Dataset.View",
-        "AIC.Dataset.Edit",
-        "AIC.Dataset.Delete",
-        "AIC.MLPackages.Create",
-        "AIC.MLPackages.View",
-        "AIC.MLPackages.Edit",
-        "AIC.MLPackages.Delete",
-        "AIC.MLSkills.Create",
-        "AIC.MLSkills.View",
-        "AIC.MLSkills.Edit",
-        "AIC.MLSkills.Delete",
-        "AIC.Pipelines.Create",
-        "AIC.Pipelines.View",
-        "AIC.Pipelines.Edit",
-        "AIC.Pipelines.Delete"
-      ],
-      "mappedServiceResourceType": "AI"
-    },
-    "Audit": {
-      "prefix": "Audit",
-      "scopes": [
-        "Audit.Write",
-        "Audit.Read"
-      ]
-    },
-    "License": {
-      "prefix": "License",
-      "scopes": [
-        "License.Read",
-        "License.Write"
-      ]
-    },
-    "Insights": {
-      "prefix": "Insights",
-      "scopes": [
-        "Insights.RealTimeData"
-      ]
-    },
-    "StudioWebS2S": {
-      "prefix": "StudioWebS2S",
-      "scopes": [
-        "StudioWebS2S.Project.CRUD",
-        "StudioWebS2S.Workflow.CRUD",
-        "StudioWebS2S.Share.CRUD",
-        "StudioWebS2S.OrganizationMove"
-      ]
-    },
-    "AT": {
-      "prefix": "AT",
-      "scopes": [
-        "AT.TrackOperations"
-      ]
-    },
-    "LLMGateway": {
-      "prefix": "LLMGateway",
-      "scopes": [
-        "LLMGateway.PartitionMove"
-      ]
-    },
-    "ECS": {
-      "prefix": "ECS",
-      "scopes": [
-        "ECS.PartitionManagement"
-      ]
     },
     "Apps": {
       "prefix": "Apps",
@@ -325,10 +325,59 @@
     "profile",
     "email",
     "tenant",
+    "AIC.Project.Create",
+    "AIC.Project.View",
+    "AIC.Project.Edit",
+    "AIC.Project.Delete",
+    "AIC.Dataset.Create",
+    "AIC.Dataset.View",
+    "AIC.Dataset.Edit",
+    "AIC.Dataset.Delete",
+    "AIC.MLPackages.Create",
+    "AIC.MLPackages.View",
+    "AIC.MLPackages.Edit",
+    "AIC.MLPackages.Delete",
+    "AIC.MLSkills.Create",
+    "AIC.MLSkills.View",
+    "AIC.MLSkills.Edit",
+    "AIC.MLSkills.Delete",
+    "AIC.Pipelines.Create",
+    "AIC.Pipelines.View",
+    "AIC.Pipelines.Edit",
+    "AIC.Pipelines.Delete",
+    "Audit",
+    "Audit.Write",
+    "PM.Audit",
+    "PM.Audit.Read",
+    "AutomationTracker",
+    "AT.TrackOperations",
+    "DataService.Default",
     "DataService.Schema.Read",
     "DataService.Data.Read",
     "DataService.Data.Write",
+    "ECS.PartitionManagement",
+    "PM.Group",
+    "PM.Group.Read",
+    "PM.Group.Write",
+    "PM.RobotAccount",
+    "PM.RobotAccount.Read",
+    "PM.RobotAccount.Write",
+    "PM.Setting",
+    "PM.Setting.Read",
+    "PM.Setting.Write",
+    "PM.User",
+    "PM.User.Read",
+    "PM.User.Write",
+    "PM.UserLoginAttempt",
+    "PM.UserLoginAttempt.Read",
     "Insights",
+    "Insights.RealTimeData",
+    "PM.License",
+    "PM.License.Read",
+    "PM.License.Write",
+    "License.Read",
+    "License.Write",
+    "LLMGateway.PartitionMove",
     "OR.License",
     "OR.License.Read",
     "OR.License.Write",
@@ -398,6 +447,12 @@
     "OR.Hypervisor",
     "OR.Hypervisor.Read",
     "OR.Hypervisor.Write",
+    "OR.Default",
+    "OR.PartitionMove",
+    "StudioWebS2S.Project.CRUD",
+    "StudioWebS2S.Workflow.CRUD",
+    "StudioWebS2S.Share.CRUD",
+    "TM.PartitionMove",
     "TM.Users",
     "TM.Users.Read",
     "TM.Users.Write",
@@ -437,61 +492,6 @@
     "TM.ObjectLabels",
     "TM.ObjectLabels.Read",
     "TM.ObjectLabels.Write",
-    "PM.Audit",
-    "PM.Audit.Read",
-    "PM.Group",
-    "PM.Group.Read",
-    "PM.Group.Write",
-    "PM.RobotAccount",
-    "PM.RobotAccount.Read",
-    "PM.RobotAccount.Write",
-    "PM.Setting",
-    "PM.Setting.Read",
-    "PM.Setting.Write",
-    "PM.User",
-    "PM.User.Read",
-    "PM.User.Write",
-    "PM.UserLoginAttempt",
-    "PM.UserLoginAttempt.Read",
-    "OR.Default",
-    "AIC.Project.Create",
-    "AIC.Project.View",
-    "AIC.Project.Edit",
-    "AIC.Project.Delete",
-    "AIC.Dataset.Create",
-    "AIC.Dataset.View",
-    "AIC.Dataset.Edit",
-    "AIC.Dataset.Delete",
-    "AIC.MLPackages.Create",
-    "AIC.MLPackages.View",
-    "AIC.MLPackages.Edit",
-    "AIC.MLPackages.Delete",
-    "AIC.MLSkills.Create",
-    "AIC.MLSkills.View",
-    "AIC.MLSkills.Edit",
-    "AIC.MLSkills.Delete",
-    "AIC.Pipelines.Create",
-    "AIC.Pipelines.View",
-    "AIC.Pipelines.Edit",
-    "AIC.Pipelines.Delete",
-    "DataService.Default",
-    "Audit.Write",
-    "Audit",
-    "License.Read",
-    "License.Write",
-    "OR.PartitionMove",
-    "PM.License",
-    "PM.License.Read",
-    "PM.License.Write",
-    "Insights.RealTimeData",
-    "TM.PartitionMove",
-    "StudioWebS2S.Project.CRUD",
-    "StudioWebS2S.Workflow.CRUD",
-    "StudioWebS2S.Share.CRUD",
-    "AutomationTracker",
-    "AT.TrackOperations",
-    "LLMGateway.PartitionMove",
-    "ECS.PartitionManagement",
     "TM.AuthZServiceSnapshotSync",
     "Apps.PartitionMove",
     "Audit.Read",

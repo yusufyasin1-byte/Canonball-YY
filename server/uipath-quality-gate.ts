@@ -155,6 +155,67 @@ const PLACEHOLDER_PATTERNS = [
   /\bexample\.com\b/,
 ];
 
+const CRITICAL_WORKFLOW_PATTERNS = [
+  /^Main\.xaml$/i,
+  /^Process\.xaml$/i,
+  /^Dispatcher\.xaml$/i,
+  /^Performer\.xaml$/i,
+  /^GetTransactionData\.xaml$/i,
+  /^SetTransactionStatus\.xaml$/i,
+  /^ContactResolver\.xaml$/i,
+  /^MessageComposer\.xaml$/i,
+  /^EmailSender\.xaml$/i,
+  /^CalendarReader\.xaml$/i,
+  /^InitAllSettings\.xaml$/i,
+];
+
+const CRITICAL_GENERATION_FAILURE_PATTERNS = [
+  "IMPLEMENTATION_REPAIRED",
+  "VB_EXPRESSION_BLOCKED",
+  "ASSEMBLY_FAILED",
+  "CONTAINER_VALIDATION_FAILED",
+  "STUB_WORKFLOW_GENERATOR_FAILURE",
+  "STUB_BLOCKING_FALLBACK",
+  "Unknown activity template",
+  "Unsupported activity:",
+  "Manual implementation required",
+];
+
+function isCriticalWorkflowFile(fileName: string): boolean {
+  return CRITICAL_WORKFLOW_PATTERNS.some(pattern => pattern.test(fileName));
+}
+
+function scanCriticalWorkflowIntegrity(input: QualityGateInput): QualityGateViolation[] {
+  const violations: QualityGateViolation[] = [];
+  for (const entry of input.xamlEntries) {
+    const shortName = entry.name.split("/").pop() || entry.name;
+    if (!isCriticalWorkflowFile(shortName)) continue;
+
+    for (const marker of CRITICAL_GENERATION_FAILURE_PATTERNS) {
+      if (entry.content.includes(marker)) {
+        violations.push({
+          category: "completeness",
+          severity: "error",
+          check: "critical-workflow-generation-failure",
+          file: shortName,
+          detail: `Critical workflow contains generation-failure marker "${marker}" and cannot be considered near-production`,
+        });
+      }
+    }
+
+    if (/<ui:Comment[^>]*Text="\[(?:BLOCKED|TODO)/i.test(entry.content)) {
+      violations.push({
+        category: "completeness",
+        severity: "error",
+        check: "critical-workflow-placeholder-blocker",
+        file: shortName,
+        detail: "Critical workflow contains blocked/TODO comment stubs in the emitted XAML",
+      });
+    }
+  }
+  return violations;
+}
+
 function scanBlockedPatterns(input: QualityGateInput): QualityGateViolation[] {
   const violations: QualityGateViolation[] = [];
 
@@ -928,6 +989,10 @@ function normalizeTypeName(t: string): string {
   if (lower === "x:double" || lower === "system.double" || lower === "double") return "x:Double";
   if (lower === "x:decimal" || lower === "system.decimal" || lower === "decimal") return "x:Decimal";
   if (lower === "x:object" || lower === "system.object" || lower === "object") return "x:Object";
+  if (lower.includes("dictionary(") || lower.includes("dictionary<") || lower.includes("clr-namespace:system.collections.generic")) {
+    return "Dictionary<String,Object>";
+  }
+  if (lower.includes("list(") || lower.includes("list<")) return "List";
   if (lower.includes("datatable")) return "DataTable";
   if (lower.includes("datarow")) return "DataRow";
   return t;
@@ -1766,6 +1831,7 @@ function checkLogicLocation(input: QualityGateInput): QualityGateViolation[] {
       const val = match[1];
       if (val.startsWith("[") || val.startsWith("TODO") || val.startsWith("PLACEHOLDER")) continue;
       if (val.includes("in_Config") || val.includes("in_")) continue;
+      if (/^InitAllSettings\.xaml$/i.test(shortName)) continue;
       const lineNum = content.substring(0, match.index).split("\n").length;
       violations.push({
         category: "logic-location",
@@ -2086,6 +2152,7 @@ function checkTransitiveDependencies(input: QualityGateInput): QualityGateViolat
 
 export function validatePackage(input: QualityGateInput): QualityGateResult {
   const blockedViolations = scanBlockedPatterns(input);
+  const criticalWorkflowViolations = scanCriticalWorkflowIntegrity(input);
   const completenessViolations = checkCompleteness(input);
   const accuracyViolations = checkAccuracy(input);
   const runtimeSafetyViolations = checkRuntimeSafety(input);
@@ -2259,10 +2326,11 @@ export function validatePackage(input: QualityGateInput): QualityGateResult {
     while ((xpm = xPropPattern.exec(entry.content)) !== null) {
       xPropNames.add(xpm[1]);
     }
+    const argScanContent = entry.content.replace(/<ui:InvokeWorkflowFile\.Arguments>[\s\S]*?<\/ui:InvokeWorkflowFile\.Arguments>/g, "");
     const argRefPattern = /\b(in_[A-Za-z]\w*|out_[A-Za-z]\w*|io_[A-Za-z]\w*)\b/g;
     const allArgRefs = new Set<string>();
     let argRefM;
-    while ((argRefM = argRefPattern.exec(entry.content)) !== null) {
+    while ((argRefM = argRefPattern.exec(argScanContent)) !== null) {
       allArgRefs.add(argRefM[1]);
     }
     for (const argRef of allArgRefs) {
@@ -2285,6 +2353,7 @@ export function validatePackage(input: QualityGateInput): QualityGateResult {
 
   const allViolations = [
     ...blockedViolations,
+    ...criticalWorkflowViolations,
     ...completenessViolations,
     ...accuracyViolations,
     ...runtimeSafetyViolations,
@@ -2383,6 +2452,8 @@ const BLOCKING_CHECKS = new Set([
   "TYPE_MISMATCH",
   "FOREACH_TYPE_MISMATCH",
   "LITERAL_TYPE_ERROR",
+  "critical-workflow-generation-failure",
+  "critical-workflow-placeholder-blocker",
 ]);
 
 const WARNING_CHECKS = new Set([
