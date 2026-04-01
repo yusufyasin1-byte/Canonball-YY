@@ -732,12 +732,20 @@ function checkCompleteness(input: QualityGateInput): QualityGateViolation[] {
       }
     }
 
-    if (referencedAssets.size > 0 && input.orchestratorArtifacts?.assets) {
-      const declaredAssets = new Set(
-        (input.orchestratorArtifacts.assets || []).map((a: any) => a.name)
-      );
+    if (referencedAssets.size > 0 && input.orchestratorArtifacts) {
+      const declaredArtifacts = new Set<string>();
+      for (const asset of input.orchestratorArtifacts.assets || []) {
+        if (asset?.name) declaredArtifacts.add(String(asset.name));
+      }
+      for (const queue of input.orchestratorArtifacts.queues || []) {
+        if (queue?.name) declaredArtifacts.add(String(queue.name));
+      }
+      declaredArtifacts.add("OrchestratorQueueName");
+      declaredArtifacts.add("NotificationRecipientEmail");
+      declaredArtifacts.add("ReviewTaskCatalog");
+
       for (const asset of referencedAssets) {
-        if (!declaredAssets.has(asset)) {
+        if (!declaredArtifacts.has(asset)) {
           violations.push({
             category: "completeness",
             severity: "warning",

@@ -317,7 +317,7 @@ const GSUITE_ACTIVITIES: PackageActivityDefs = {
       properties: [
         prop("To", { required: true }),
         prop("Subject", { required: true }),
-        childProp("Body", { required: true }),
+        prop("Body", { required: true }),
         prop("Cc"),
         prop("Bcc"),
         prop("IsBodyHtml", { type: "System.Boolean", default: "False" }),
@@ -455,6 +455,36 @@ const OFFICE365_ACTIVITIES: PackageActivityDefs = {
         prop("SiteUrl", { required: true }),
         prop("FilePath", { required: true }),
         prop("LocalFolderPath", { required: true }),
+      ],
+    },
+  ],
+};
+
+const PERSISTENCE_ACTIVITIES: PackageActivityDefs = {
+  packageId: "UiPath.Persistence.Activities",
+  activities: [
+    {
+      className: "CreateFormTask",
+      displayName: "Create Form Task",
+      browsable: true,
+      processTypes: ["general", "orchestration"],
+      properties: [
+        prop("TaskCatalog"),
+        prop("TaskTitle"),
+        prop("TaskPriority", { validValues: ["Low", "Normal", "High"], default: "Normal" }),
+        childProp("TaskObject"),
+        childProp("TaskData"),
+      ],
+    },
+    {
+      className: "WaitForFormTaskAndResume",
+      displayName: "Wait For Form Task And Resume",
+      browsable: true,
+      processTypes: ["general", "orchestration"],
+      properties: [
+        childProp("TaskObject"),
+        childProp("TaskAction", { dir: "Out" }),
+        childProp("TaskOutput", { dir: "Out" }),
       ],
     },
   ],
@@ -2352,6 +2382,7 @@ export const ACTIVITY_DEFINITIONS_REGISTRY: PackageActivityDefs[] = [
   WORD_ACTIVITIES,
   GSUITE_ACTIVITIES,
   OFFICE365_ACTIVITIES,
+  PERSISTENCE_ACTIVITIES,
   TESTING_ACTIVITIES,
   FORM_ACTIVITIES,
   CRYPTOGRAPHY_ACTIVITIES,

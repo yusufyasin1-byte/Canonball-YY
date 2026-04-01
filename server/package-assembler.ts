@@ -1606,6 +1606,30 @@ function extractVariablesFromSDD(sddContent: string): Array<{ name: string; type
   return vars;
 }
 
+function sanitizeConfigKeySegment(value: string): string {
+  return String(value || "")
+    .replace(/[^A-Za-z0-9]+/g, " ")
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean)
+    .map(part => part.charAt(0).toUpperCase() + part.slice(1))
+    .join("");
+}
+
+function buildConfigLookupExpression(configKey: string, fallbackValue: string): string {
+  const safeKey = configKey.replace(/"/g, '""');
+  const safeFallback = fallbackValue.replace(/"/g, '""');
+  return `[If(in_Config.ContainsKey("${safeKey}"), in_Config("${safeKey}").ToString(), "${safeFallback}")]`;
+}
+
+function inferHttpMethodForSystem(system: string, description: string): "GET" | "POST" | "PUT" | "PATCH" {
+  const corpus = `${system} ${description}`.toLowerCase();
+  if (/\b(update|modify|patch)\b/.test(corpus)) return "PATCH";
+  if (/\b(create|send|submit|post|write|save|persist|insert|add)\b/.test(corpus)) return "POST";
+  if (/\bput\b/.test(corpus)) return "PUT";
+  return "GET";
+}
+
 function selectSystemActivity(system: string, description: string): { template: string; displayName: string; properties: Record<string, string> } | null {
   const sysLower = (system || "").toLowerCase();
   const descLower = (description || "").toLowerCase();
@@ -1614,27 +1638,47 @@ function selectSystemActivity(system: string, description: string): { template: 
     displayName,
     properties: { Level: "Info", Message: `"${message.replace(/"/g, '""')}"` },
   });
+  const systemSegment = sanitizeConfigKeySegment(system || "ExternalSystem");
+  const method = inferHttpMethodForSystem(system, description);
+  const endpointConfigKey = `${systemSegment}Endpoint`;
+  const baseHttpActivity = {
+    template: "HttpClientRequest",
+    displayName: `Call ${system || "External System"}`,
+    properties: {
+      EndPoint: buildConfigLookupExpression(endpointConfigKey, "https://example.invalid/api"),
+      Method: method,
+      AcceptFormat: "JSON",
+      ResponseContent: "[str_ResponseBody]",
+    } as Record<string, string>,
+  };
+  if (method !== "GET") {
+    baseHttpActivity.properties.Body = "[in_ContextJson]";
+    baseHttpActivity.properties.BodyFormat = "application/json";
+  }
 
   if (sysLower.includes("google calendar")) {
-    return makeBindPoint(`Calendar Reader Bind Point - ${system}`, `Bind Google Calendar connector for ${system}`);
+    return makeBindPoint(`Calendar Connector Bind Point - ${system}`, `Bind calendar retrieval and event filtering for ${system}`);
   }
   if (sysLower.includes("google contacts")) {
-    return makeBindPoint(`Contact Resolver Bind Point - ${system}`, `Bind Google Contacts lookup for ${system}`);
+    return makeBindPoint(`Contact Connector Bind Point - ${system}`, `Bind contact lookup and preferred-field resolution for ${system}`);
   }
   if (sysLower.includes("orchestrator queue")) {
     return makeBindPoint(`Queue Activity Bind Point - ${system}`, `Implement Orchestrator queue interaction for ${system}`);
   }
   if (sysLower.includes("genai")) {
-    return makeBindPoint(`GenAI Bind Point - ${system}`, `Bind UiPath GenAI activity for ${system}`);
+    return makeBindPoint(`GenAI Bind Point - ${system}`, `Bind GenAI prompt execution and response handling for ${system}`);
   }
   if (sysLower.includes("action center")) {
-    return makeBindPoint(`Action Center Bind Point - ${system}`, `Bind Action Center task creation for ${system}`);
+    return makeBindPoint(`Action Center Review - ${system}`, `Capture review outcome for ${system} and preserve the workflow contract.`);
   }
   if (sysLower.includes("data service")) {
-    return makeBindPoint(`Data Service Bind Point - ${system}`, `Bind Data Service entity write for ${system}`);
+    return makeBindPoint(`Persistence Bind Point - ${system}`, `Bind persistence write/update handling for ${system}`);
   }
   if (sysLower.includes("gmail")) {
-    return makeBindPoint(`Gmail Delivery Bind Point - ${system}`, `Bind Gmail delivery for ${system}`);
+    return makeBindPoint(`Outbound Communication Bind Point - ${system}`, `Bind outbound email or notification step for ${system}`);
+  }
+  if (sysLower.includes("integration service")) {
+    return makeBindPoint(`Connector Bind Point - ${system}`, `Bind Integration Service connector execution for ${system}`);
   }
   if (
     sysLower.includes("api") ||
@@ -1644,28 +1688,28 @@ function selectSystemActivity(system: string, description: string): { template: 
     descLower.includes("api call") ||
     descLower.includes("http request")
   ) {
-    return makeBindPoint(`HTTP Bind Point - ${system}`, `Bind HTTP or webhook call for ${system}`);
+    return makeBindPoint(`API Bind Point - ${system}`, `Bind API request and response handling for ${system || "external system"}`);
   }
   if (sysLower.includes("excel") || sysLower.includes("spreadsheet")) {
-    return { template: "ExcelApplicationScope", displayName: `Open Excel - ${system}`, properties: { WorkbookPath: '"C:\\Data\\Workbook.xlsx"' } };
+    return makeBindPoint(`Excel Data Bind Point - ${system}`, `Bind Excel workbook access and sheet interaction for ${system}`);
   }
   if (sysLower.includes("email") || sysLower.includes("outlook") || sysLower.includes("mail")) {
     return makeBindPoint(`Outbound Communication Bind Point - ${system}`, `Bind outbound email or notification step for ${system}`);
   }
   if (sysLower.includes("sap")) {
-    return { template: "TypeInto", displayName: `Type Into SAP - ${system}`, properties: { Text: '""', Target: '{ "type": "selector", "value": "<wnd app=\'saplogon.exe\' />" }' } };
+    return makeBindPoint(`SAP Interaction Bind Point - ${system}`, `Bind SAP transaction and field interaction for ${system}`);
   }
   if (sysLower.includes("browser") || sysLower.includes("web") || sysLower.includes("chrome") || sysLower.includes("portal") || sysLower.includes("website")) {
-    return makeBindPoint(`Browser Automation Bind Point - ${system}`, `Bind browser-based lookup or navigation for ${system}`);
+    return makeBindPoint(`Browser Interaction Bind Point - ${system}`, `Bind browser navigation and interaction for ${system || "target application"}`);
   }
   if (sysLower.includes("database") || sysLower.includes("sql") || sysLower.includes("db")) {
-    return { template: "ExecuteQuery", displayName: `Query Database - ${system}`, properties: { Sql: '"SELECT * FROM table"', ConnectionString: '""' } };
+    return makeBindPoint(`Database Bind Point - ${system}`, `Bind database query or update activity for ${system}`);
   }
   if (descLower.includes("click") || descLower.includes("type") || descLower.includes("enter") || descLower.includes("input") || descLower.includes("fill")) {
-    return { template: "TypeInto", displayName: `Type Into - ${system}`, properties: { Text: '""' } };
+    return makeBindPoint(`UI Interaction Bind Point - ${system || "Target Application"}`, `Bind UI interaction and field entry for ${system || "target application"}`);
   }
   if (descLower.includes("download") || descLower.includes("save file") || descLower.includes("export")) {
-    return { template: "MoveFile", displayName: `Save File - ${system}`, properties: { Path: '""', Destination: '""' } };
+    return makeBindPoint(`File Transfer Bind Point - ${system}`, `Bind file download, save, or export handling for ${system || "target application"}`);
   }
   return null;
 }
@@ -1999,6 +2043,53 @@ type DeterministicWorkflowContext = {
   queueName: string;
 };
 
+function isQueueRelatedNode(node: any): boolean {
+  const text = `${node?.name || ""} ${node?.description || ""} ${node?.system || ""}`.toLowerCase();
+  return /queue|transaction item|work item|dispatcher|ingest|fetch.*calendar|get next/.test(text);
+}
+
+function buildQueueImplementationActivities(
+  context: DeterministicWorkflowContext,
+  node: any,
+): TreeWorkflowNode[] {
+  const text = `${node?.name || ""} ${node?.description || ""} ${node?.system || ""}`.toLowerCase();
+  const queueNameExpr = `[in_Config("OrchestratorQueueName").ToString]`;
+  const children: TreeWorkflowNode[] = [];
+
+  if (/(create|enqueue|add|build).*queue|queue item|work item|dispatcher|ingest|fetch.*calendar/.test(text)) {
+    children.push(
+      makeDeterministicActivity("LogMessage", "Queue Activity Bind Point", {
+        Level: "Info",
+        Message: `"Implement queue producer/dispatcher logic for ${String(node?.system || context.queueName || "Orchestrator queue").replace(/"/g, '""')}"`,
+      }),
+    );
+  }
+
+  return children;
+}
+
+function ensureDeterministicQueueArtifact(
+  orchestratorArtifacts: any,
+  context: DeterministicWorkflowContext,
+): any {
+  const normalized = orchestratorArtifacts && typeof orchestratorArtifacts === "object"
+    ? { ...orchestratorArtifacts }
+    : {};
+  const queues = Array.isArray(normalized.queues) ? [...normalized.queues] : [];
+  const hasQueue = queues.some((q: any) => String(q?.name || "").toLowerCase() === context.queueName.toLowerCase());
+  if (!hasQueue) {
+    queues.push({
+      name: context.queueName,
+      description: `Auto-declared deterministic queue for ${context.projectName}`,
+      maxRetries: 3,
+      uniqueReference: true,
+    });
+  }
+  normalized.queues = queues;
+  if (!Array.isArray(normalized.assets)) normalized.assets = [];
+  return normalized;
+}
+
 function slugifyDeterministicSegment(value: string): string {
   return value
     .replace(/[^A-Za-z0-9]+/g, "_")
@@ -2016,21 +2107,39 @@ function titleCaseDeterministic(value: string): string {
 
 function inferPrimaryEntityLabel(projectName: string, processNodes: any[], sddContent?: string): string {
   const corpus = `${projectName} ${sddContent || ""} ${processNodes.map(node => `${node.name || ""} ${node.description || ""}`).join(" ")}`.toLowerCase();
-  if (/\binvoice\b/.test(corpus)) return "Invoice";
-  if (/\b(po|purchase order)\b/.test(corpus)) return "PurchaseOrder";
-  if (/\bbirthday\b/.test(corpus) || /\brecipient\b/.test(corpus) || /\bcontact\b/.test(corpus)) return "Recipient";
-  if (/\bclaim\b/.test(corpus)) return "Claim";
-  if (/\bemployee\b/.test(corpus)) return "Employee";
+  const entityProfiles: Array<{ label: string; patterns: RegExp[] }> = [
+    { label: "Candidate", patterns: [/\bcandidate\b/g, /\binterview\b/g, /\bapplicant\b/g] },
+    { label: "ContingentWorker", patterns: [/\bcontingent worker\b/g, /\bworker\b/g, /\bcontractor\b/g] },
+    { label: "JobRequisition", patterns: [/\bjob requisition\b/g, /\brequisition\b/g, /\bjob opening\b/g] },
+    { label: "Invoice", patterns: [/\binvoice\b/g, /\bcoupa\b/g, /\bap\b/g] },
+    { label: "PurchaseOrder", patterns: [/\bpurchase order\b/g, /\bpo\b/g] },
+    { label: "Recipient", patterns: [/\bbirthday\b/g, /\brecipient\b/g, /\bcontact\b/g] },
+    { label: "Claim", patterns: [/\bclaim\b/g] },
+    { label: "Employee", patterns: [/\bemployee\b/g] },
+    { label: "CommuteUpdate", patterns: [/\bcommute\b/g, /\btravel\b/g, /\broute\b/g] },
+  ];
+  let bestLabel = "WorkItem";
+  let bestScore = 0;
+  for (const profile of entityProfiles) {
+    const score = profile.patterns.reduce((total, pattern) => total + (corpus.match(pattern)?.length || 0), 0);
+    if (score > bestScore) {
+      bestScore = score;
+      bestLabel = profile.label;
+    }
+  }
+  if (bestScore > 0) return bestLabel;
   return "WorkItem";
 }
 
 function inferDomainLabel(projectName: string, processNodes: any[], sddContent?: string): string {
-  const corpus = `${projectName} ${sddContent || ""} ${processNodes.map(node => `${node.name || ""} ${node.system || ""}`).join(" ")}`.toLowerCase();
-  if (/\bbirthday\b/.test(corpus)) return "birthday greetings";
-  if (/\binvoice\b/.test(corpus) || /\bcoupa\b/.test(corpus)) return "invoice processing";
-  if (/\bclaim\b/.test(corpus)) return "claims processing";
-  if (/\bonboarding\b/.test(corpus)) return "employee onboarding";
-  return projectName.replace(/_/g, " ");
+  const normalizedProjectName = projectName.replace(/[_-]+/g, " ").trim();
+  if (normalizedProjectName) return normalizedProjectName;
+  const firstNamedNode = processNodes.find(node => typeof node?.name === "string" && node.name.trim().length > 0);
+  if (firstNamedNode?.name) return String(firstNamedNode.name).trim();
+  if (typeof sddContent === "string" && sddContent.trim().length > 0) {
+    return sddContent.trim().slice(0, 80);
+  }
+  return "Business process";
 }
 
 function buildDeterministicContext(
@@ -2085,8 +2194,8 @@ function buildDeterministicRoleSummary(role: DeterministicWorkflowRole, context:
     document_extraction: `Extract structured data needed for ${context.primaryEntityLabel.toLowerCase()} processing`,
     validation_matching: `Validate ${context.primaryEntityLabel.toLowerCase()} data against documented business rules`,
     communication_drafting: `Draft communication payloads required by the process`,
-    review_exception: `Handle review, correction, and exception paths`,
-    outbound_communication: `Execute outbound communication or notification bind points`,
+    review_exception: `Handle review, correction, and exception paths while preserving the ${context.primaryEntityLabel.toLowerCase()} contract`,
+    outbound_communication: `Execute outbound communication or notification steps for ${context.domainLabel}`,
     approval_routing: `Route the ${context.primaryEntityLabel.toLowerCase()} through approval and disposition steps`,
     persistence_audit: `Persist audit and outcome records`,
     generic_step_group: `Execute grouped process steps for ${context.domainLabel}`,
@@ -2123,6 +2232,7 @@ function buildGenericDeterministicSubWorkflowSpec(
   if (!childNodes.length) return null;
   const normalized = childWorkflowName.replace(/\s+/g, "_");
   const role = classifyDeterministicWorkflowRole(childNodes[0]);
+  const variables: Array<{ name: string; type: string; default?: string }> = [];
   const argumentsList: Array<{ name: string; direction: string; type: string }> = [
     { name: "in_Config", direction: "InArgument", type: "scg:Dictionary(x:String, x:Object)" },
     { name: "in_ContextJson", direction: "InArgument", type: "x:String" },
@@ -2131,6 +2241,9 @@ function buildGenericDeterministicSubWorkflowSpec(
   ];
   if (role === "intake_dispatcher") argumentsList.push({ name: "out_ItemCount", direction: "OutArgument", type: "x:Int32" });
   if (role === "review_exception") argumentsList.push({ name: "in_RequiresReview", direction: "InArgument", type: "x:Boolean" });
+  if (role === "intake_dispatcher") {
+    variables.push({ name: "dict_QueueItemData", type: "System.Collections.Generic.Dictionary(System.String,System.Object)" });
+  }
 
   const children: TreeWorkflowNode[] = [
     makeDeterministicActivity("LogMessage", `Start ${normalized}`, { Level: "Info", Message: `Starting ${normalized}` }),
@@ -2142,16 +2255,37 @@ function buildGenericDeterministicSubWorkflowSpec(
       Level: "Info",
       Message: `["Execute step: ${String(node.description || node.name || "process step").replace(/"/g, '""')}"]`,
     }));
-    const systemActivity = selectSystemActivity(node.system || "", node.description || "");
-    if (systemActivity) {
+    const queueActivities = role === "intake_dispatcher" && isQueueRelatedNode(node)
+      ? buildQueueImplementationActivities(context, node)
+      : [];
+    const systemActivity = queueActivities.length === 0
+      ? selectSystemActivity(node.system || "", node.description || "")
+      : null;
+    const implementationChildren: TreeWorkflowNode[] = queueActivities.length > 0
+      ? queueActivities
+      : systemActivity
+        ? [{
+            kind: "activity",
+            template: systemActivity.template,
+            displayName: systemActivity.displayName,
+            properties: systemActivity.properties,
+            outputVar: null,
+            outputType: null,
+            errorHandling: "none",
+          }]
+        : [];
+    if (implementationChildren.length > 0) {
       children.push({
-        kind: "activity",
-        template: systemActivity.template,
-        displayName: systemActivity.displayName,
-        properties: systemActivity.properties,
-        outputVar: null,
-        outputType: null,
-        errorHandling: "none",
+        kind: "tryCatch",
+        displayName: `Execute ${node.name}`,
+        tryChildren: implementationChildren,
+        catchChildren: [
+          makeDeterministicActivity("LogMessage", `Log Error - ${node.name}`, {
+            Level: "Error",
+            Message: `["Failed step: ${String(node.name || "process step").replace(/"/g, '""')}"]`,
+          }),
+        ],
+        finallyChildren: [],
       });
     }
   }
@@ -2182,7 +2316,7 @@ function buildGenericDeterministicSubWorkflowSpec(
   return {
     name: normalized,
     description: `${titleCaseDeterministic(normalized)} deterministic workflow for ${projectName}`,
-    variables: [],
+    variables,
     arguments: argumentsList as any,
     rootSequence: {
       kind: "sequence",
@@ -2268,371 +2402,37 @@ function buildGenericDeterministicMainWorkflowSpec(
   };
 }
 
-function createDeterministicSubWorkflowSpec(
-  childWorkflowName: string,
-  projectName: string,
-): TreeWorkflowSpec | null {
-  const normalized = childWorkflowName.replace(/\s+/g, "_");
-  switch (normalized) {
-    case "Dispatcher":
-      return {
-        name: normalized,
-        description: `Deterministic dispatcher for ${projectName}`,
-        variables: [],
-        arguments: [
-          { name: "in_Config", direction: "InArgument", type: "scg:Dictionary(x:String, x:Object)" },
-          { name: "out_RecipientCount", direction: "OutArgument", type: "x:Int32" },
-          { name: "out_WorkItemsJson", direction: "OutArgument", type: "x:String" },
-        ],
-        rootSequence: {
-          kind: "sequence",
-          displayName: `${normalized} - Sequence`,
-          children: [
-            makeDeterministicActivity("LogMessage", "Start Dispatcher", { Level: "Info", Message: "Starting Dispatcher" }),
-            makeDeterministicActivity("LogMessage", "Load Birthday Calendar Events", { Level: "Info", Message: "Deterministic fallback reading todays birthday events from configured calendar bind point" }),
-            makeDeterministicActivity("Assign", "Set Recipient Count", { To: "out_RecipientCount", Value: "1" }),
-            makeDeterministicActivity("Assign", "Set Work Item Payload", {
-              To: "out_WorkItemsJson",
-              Value: `"{""FullName"":""Sample Birthday Person"",""BirthDate"":""2026-03-31"",""CalendarSource"":""Birthdays""}"`,
-            }),
-            makeDeterministicActivity("LogMessage", "Queue Bind Point", { Level: "Info", Message: "Bind Orchestrator queue creation using BirthdayGreetingsV9_Queue and the generated work item payload" }),
-            makeDeterministicActivity("LogMessage", "Complete Dispatcher", { Level: "Info", Message: "Completed Dispatcher" }),
-          ],
-        },
-        useReFramework: false,
-        dhgNotes: [
-          "Deterministic dispatcher fallback generated from process documentation",
-          "Replace bind-point logging with Google Calendar read and Add Queue Item activities for final implementation",
-        ],
-        decomposition: [],
-      };
-    case "ContactResolver":
-      return {
-        name: normalized,
-        description: `Deterministic contact resolution for ${projectName}`,
-        variables: [],
-        arguments: [
-          { name: "in_WorkItemsJson", direction: "InArgument", type: "x:String" },
-          { name: "in_Config", direction: "InArgument", type: "scg:Dictionary(x:String, x:Object)" },
-          { name: "out_FullName", direction: "OutArgument", type: "x:String" },
-          { name: "out_PreferredEmail", direction: "OutArgument", type: "x:String" },
-          { name: "out_ContactStatus", direction: "OutArgument", type: "x:String" },
-        ],
-        rootSequence: {
-          kind: "sequence",
-          displayName: `${normalized} - Sequence`,
-          children: [
-            makeDeterministicActivity("LogMessage", "Start Contact Resolver", { Level: "Info", Message: "Starting ContactResolver" }),
-            makeDeterministicActivity("Assign", "Set Recipient Name", { To: "out_FullName", Value: "Sample Birthday Person" }),
-            makeDeterministicActivity("Assign", "Set Preferred Email", { To: "out_PreferredEmail", Value: `["birthday.friend@contoso.com"]` }),
-            makeDeterministicActivity("Assign", "Set Contact Status", { To: "out_ContactStatus", Value: "Resolved" }),
-            makeDeterministicActivity("LogMessage", "Preferred Email Rule", { Level: "Info", Message: "Deterministic fallback applies the Personal greater than Home email preference rule" }),
-            makeDeterministicActivity("LogMessage", "Contacts Bind Point", { Level: "Info", Message: "Bind Google Contacts lookup and replace deterministic recipient defaults" }),
-            makeDeterministicActivity("LogMessage", "Complete Contact Resolver", { Level: "Info", Message: "Completed ContactResolver" }),
-          ],
-        },
-        useReFramework: false,
-        dhgNotes: [
-          "Deterministic fallback resolves a safe sample contact contract",
-          "Replace deterministic outputs with Google Contacts data retrieval and selection logic",
-        ],
-        decomposition: [],
-      };
-    case "MessageComposer":
-      return {
-        name: normalized,
-        description: `Deterministic message composition for ${projectName}`,
-        variables: [],
-        arguments: [
-          { name: "in_FullName", direction: "InArgument", type: "x:String" },
-          { name: "in_Config", direction: "InArgument", type: "scg:Dictionary(x:String, x:Object)" },
-          { name: "out_MessageSubject", direction: "OutArgument", type: "x:String" },
-          { name: "out_MessageBody", direction: "OutArgument", type: "x:String" },
-          { name: "out_RequiresReview", direction: "OutArgument", type: "x:Boolean" },
-        ],
-        rootSequence: {
-          kind: "sequence",
-          displayName: `${normalized} - Sequence`,
-          children: [
-            makeDeterministicActivity("LogMessage", "Start Message Composer", { Level: "Info", Message: "Starting MessageComposer" }),
-            makeDeterministicActivity("Assign", "Set Message Subject", { To: "out_MessageSubject", Value: `["Happy Birthday, " & in_FullName & "!"]` }),
-            makeDeterministicActivity("Assign", "Set Message Body", { To: "out_MessageBody", Value: `["Wishing you a wonderful birthday and a fantastic year ahead, " & in_FullName & "."]` }),
-            makeDeterministicActivity("Assign", "Set Review Flag", { To: "out_RequiresReview", Value: "False" }),
-            makeDeterministicActivity("LogMessage", "GenAI Bind Point", { Level: "Info", Message: "Bind UiPath GenAI message generation and keep the deterministic message as a safe fallback" }),
-            makeDeterministicActivity("LogMessage", "Complete Message Composer", { Level: "Info", Message: "Completed MessageComposer" }),
-          ],
-        },
-        useReFramework: false,
-        dhgNotes: [
-          "Deterministic fallback emits a complete subject/body contract",
-          "Replace deterministic message text with tenant-approved GenAI generation if desired",
-        ],
-        decomposition: [],
-      };
-    case "ReviewHandler":
-      return {
-        name: normalized,
-        description: `Deterministic review handling for ${projectName}`,
-        variables: [],
-        arguments: [
-          { name: "in_Config", direction: "InArgument", type: "scg:Dictionary(x:String, x:Object)" },
-          { name: "in_MessageSubject", direction: "InArgument", type: "x:String" },
-          { name: "in_MessageBody", direction: "InArgument", type: "x:String" },
-          { name: "in_RequiresReview", direction: "InArgument", type: "x:Boolean" },
-          { name: "out_FinalMessageBody", direction: "OutArgument", type: "x:String" },
-          { name: "out_ReviewStatus", direction: "OutArgument", type: "x:String" },
-        ],
-        rootSequence: {
-          kind: "sequence",
-          displayName: `${normalized} - Sequence`,
-          children: [
-            makeDeterministicActivity("LogMessage", "Start Review Handler", { Level: "Info", Message: "Starting ReviewHandler" }),
-            {
-              kind: "if",
-              displayName: "Decision: Human Review Required",
-              condition: "[in_RequiresReview]",
-              thenChildren: [
-                makeDeterministicActivity("Assign", "Mark Review Required", { To: "out_ReviewStatus", Value: "ReviewRequired" }),
-                makeDeterministicActivity("Assign", "Carry Message Body Forward", { To: "out_FinalMessageBody", Value: "[in_MessageBody]" }),
-                makeDeterministicActivity("LogMessage", "Action Center Bind Point", { Level: "Info", Message: "Bind Action Center review task creation when human review is enabled" }),
-              ],
-              elseChildren: [
-                makeDeterministicActivity("Assign", "Mark Review Not Needed", { To: "out_ReviewStatus", Value: "NotRequired" }),
-                makeDeterministicActivity("Assign", "Carry Message Body Forward", { To: "out_FinalMessageBody", Value: "[in_MessageBody]" }),
-              ],
-            },
-            makeDeterministicActivity("LogMessage", "Complete Review Handler", { Level: "Info", Message: "Completed ReviewHandler" }),
-          ],
-        },
-        useReFramework: false,
-        dhgNotes: [
-          "Deterministic fallback bypasses human review unless bind points are implemented",
-        ],
-        decomposition: [],
-      };
-    case "EmailSender":
-      return {
-        name: normalized,
-        description: `Deterministic email sending for ${projectName}`,
-        variables: [],
-        arguments: [
-          { name: "in_To", direction: "InArgument", type: "x:String" },
-          { name: "in_Subject", direction: "InArgument", type: "x:String" },
-          { name: "in_Body", direction: "InArgument", type: "x:String" },
-          { name: "out_SendStatus", direction: "OutArgument", type: "x:String" },
-        ],
-        rootSequence: {
-          kind: "sequence",
-          displayName: `${normalized} - Sequence`,
-          children: [
-            makeDeterministicActivity("LogMessage", "Start Email Sender", { Level: "Info", Message: "Starting EmailSender" }),
-            makeDeterministicActivity("LogMessage", "Gmail Bind Point", { Level: "Info", Message: `["Bind Gmail send using recipient " & in_To & " and keep the deterministic subject/body contract intact"]` }),
-            makeDeterministicActivity("Assign", "Set Send Status", { To: "out_SendStatus", Value: "ReadyToSend" }),
-            makeDeterministicActivity("LogMessage", "Complete Email Sender", { Level: "Info", Message: "Completed EmailSender" }),
-          ],
-        },
-        useReFramework: false,
-        dhgNotes: [
-          "Deterministic fallback preserves the final email contract without sending mail automatically",
-          "Replace bind-point logging with Gmail/Integration Service send activity",
-        ],
-        decomposition: [],
-      };
-    case "AuditPersistence":
-      return {
-        name: normalized,
-        description: `Deterministic audit persistence for ${projectName}`,
-        variables: [],
-        arguments: [
-          { name: "in_FullName", direction: "InArgument", type: "x:String" },
-          { name: "in_PreferredEmail", direction: "InArgument", type: "x:String" },
-          { name: "in_SendStatus", direction: "InArgument", type: "x:String" },
-          { name: "in_ReviewStatus", direction: "InArgument", type: "x:String" },
-          { name: "out_AuditStatus", direction: "OutArgument", type: "x:String" },
-        ],
-        rootSequence: {
-          kind: "sequence",
-          displayName: `${normalized} - Sequence`,
-          children: [
-            makeDeterministicActivity("LogMessage", "Start Audit Persistence", { Level: "Info", Message: "Starting AuditPersistence" }),
-            makeDeterministicActivity("LogMessage", "Audit Summary", { Level: "Info", Message: `["Audit record prepared for " & in_FullName & " (" & in_PreferredEmail & ") with send status " & in_SendStatus]` }),
-            makeDeterministicActivity("Assign", "Set Audit Status", { To: "out_AuditStatus", Value: "AuditPrepared" }),
-            makeDeterministicActivity("LogMessage", "Data Service Bind Point", { Level: "Info", Message: "Bind Data Service persistence for BirthdayGreetingRun and BirthdayGreetingMessage entities" }),
-            makeDeterministicActivity("LogMessage", "Complete Audit Persistence", { Level: "Info", Message: "Completed AuditPersistence" }),
-          ],
-        },
-        useReFramework: false,
-        dhgNotes: [
-          "Deterministic fallback preserves audit payload semantics",
-          "Replace bind-point logging with Data Service entity writes",
-        ],
-        decomposition: [],
-      };
-    default:
-      return null;
-  }
-}
-
-function createDeterministicMainWorkflowSpec(
-  projectName: string,
-  childWorkflowNames: string[],
-): TreeWorkflowSpec {
-  const variables = [
-    { name: "dict_Config", type: "Dictionary<String, Object>", default: "[New Dictionary(Of String, Object)]" },
-    { name: "int_RecipientCount", type: "Int32", default: "0" },
-    { name: "str_WorkItemsJson", type: "String", default: '""' },
-    { name: "str_FullName", type: "String", default: '""' },
-    { name: "str_PreferredEmail", type: "String", default: '""' },
-    { name: "str_ContactStatus", type: "String", default: '"Pending"' },
-    { name: "str_MessageSubject", type: "String", default: '""' },
-    { name: "str_MessageBody", type: "String", default: '""' },
-    { name: "bool_RequiresReview", type: "Boolean", default: "False" },
-    { name: "str_FinalMessageBody", type: "String", default: '""' },
-    { name: "str_ReviewStatus", type: "String", default: '"NotRequired"' },
-    { name: "str_SendStatus", type: "String", default: '"Pending"' },
-    { name: "str_AuditStatus", type: "String", default: '"Pending"' },
-  ];
-
-  const children: TreeWorkflowNode[] = [
-    makeDeterministicActivity("LogMessage", "Log Process Start", { Level: "Info", Message: `Starting ${projectName} process` }),
-    makeDeterministicInvoke("InitAllSettings", "Initialize All Settings", {
-      out_Config: "[dict_Config]",
-    }),
-  ];
-
-  if (childWorkflowNames.includes("Dispatcher")) {
-    children.push(makeDeterministicInvoke("Dispatcher", "Run Dispatcher", {
-      in_Config: "[dict_Config]",
-      out_RecipientCount: "[int_RecipientCount]",
-      out_WorkItemsJson: "[str_WorkItemsJson]",
-    }));
-  }
-  if (childWorkflowNames.includes("ContactResolver")) {
-    children.push(makeDeterministicInvoke("ContactResolver", "Resolve Contact", {
-      in_WorkItemsJson: "[str_WorkItemsJson]",
-      in_Config: "[dict_Config]",
-      out_FullName: "[str_FullName]",
-      out_PreferredEmail: "[str_PreferredEmail]",
-      out_ContactStatus: "[str_ContactStatus]",
-    }));
-  }
-  const thenChildren: TreeWorkflowNode[] = [];
-  if (childWorkflowNames.includes("MessageComposer")) {
-    thenChildren.push(makeDeterministicInvoke("MessageComposer", "Compose Birthday Message", {
-      in_FullName: "[str_FullName]",
-      in_Config: "[dict_Config]",
-      out_MessageSubject: "[str_MessageSubject]",
-      out_MessageBody: "[str_MessageBody]",
-      out_RequiresReview: "[bool_RequiresReview]",
-    }));
-  }
-  if (childWorkflowNames.includes("ReviewHandler")) {
-    thenChildren.push(makeDeterministicInvoke("ReviewHandler", "Review Message", {
-      in_Config: "[dict_Config]",
-      in_MessageSubject: "[str_MessageSubject]",
-      in_MessageBody: "[str_MessageBody]",
-      in_RequiresReview: "[bool_RequiresReview]",
-      out_FinalMessageBody: "[str_FinalMessageBody]",
-      out_ReviewStatus: "[str_ReviewStatus]",
-    }));
-  }
-  if (childWorkflowNames.includes("EmailSender")) {
-    thenChildren.push(makeDeterministicInvoke("EmailSender", "Send Birthday Email", {
-      in_To: "[str_PreferredEmail]",
-      in_Subject: "[str_MessageSubject]",
-      in_Body: "[str_FinalMessageBody]",
-      out_SendStatus: "[str_SendStatus]",
-    }));
-  }
-  children.push({
-    kind: "if",
-    displayName: "Decision: Contact Resolved",
-    condition: `[str_ContactStatus = "Resolved"]`,
-    thenChildren,
-    elseChildren: [
-      makeDeterministicActivity("Assign", "Mark Missing Email Status", { To: "str_SendStatus", Value: "SkippedNoEmailFound" }),
-      makeDeterministicActivity("Assign", "Mark Missing Review Status", { To: "str_ReviewStatus", Value: "NotNeeded" }),
-      makeDeterministicActivity("LogMessage", "Skip Missing Email", { Level: "Warn", Message: "Skipping recipient because no Personal Home email was resolved" }),
-    ],
-  });
-  if (childWorkflowNames.includes("AuditPersistence")) {
-    children.push(makeDeterministicInvoke("AuditPersistence", "Persist Audit", {
-      in_FullName: "[str_FullName]",
-      in_PreferredEmail: "[str_PreferredEmail]",
-      in_SendStatus: "[str_SendStatus]",
-      in_ReviewStatus: "[str_ReviewStatus]",
-      out_AuditStatus: "[str_AuditStatus]",
-    }));
-  }
-  children.push(makeDeterministicActivity("LogMessage", "Log Process Complete", {
-    Level: "Info",
-    Message: `["${projectName} process completed. Recipients=" & int_RecipientCount.ToString() & ", SendStatus=" & str_SendStatus & ", AuditStatus=" & str_AuditStatus]`,
-  }));
-
-  return {
-    name: "Main",
-    description: `Deterministic orchestrator for ${projectName}`,
-    variables,
-    arguments: [],
-    rootSequence: {
-      kind: "sequence",
-      displayName: "Main - Deterministic Sequence",
-      children,
-    },
-    useReFramework: false,
-    dhgNotes: [
-      "Deterministic orchestrator generated from the documented process flow",
-      "Replace bind-point activities inside sub-workflows with tenant-specific connectors while preserving the typed workflow contracts",
-    ],
-    decomposition: [],
-  };
-}
-
 function buildDeterministicInitAllSettingsXaml(
   orchestratorArtifacts?: any,
   targetFramework?: TargetFramework,
   credentialStrategy?: string,
 ): string {
-  const isCSharp = targetFramework === "Portable";
-  const nsS = isCSharp ? "System.Runtime" : "mscorlib";
-  const nsScg = isCSharp ? "System.Runtime" : "mscorlib";
-  const assets = orchestratorArtifacts?.assets || [];
-  const queues = orchestratorArtifacts?.queues || [];
-
-  let assetActivities = `
-    <!-- InitAllSettings.xaml - Auto-generated by CannonBall -->
-    <!-- Deterministic baseline configuration initializer -->`;
-
-  for (const asset of assets) {
-    const dictKey = isCSharp ? `"${escapeXml(asset.name)}"` : `&quot;${escapeXml(asset.name)}&quot;`;
-    const placeholderValue = asset.type === "Credential"
-      ? "Credential bind point"
-      : `Asset bind point: ${asset.name}`;
-    assetActivities += `
-    <ui:LogMessage Level="Info" Message="[&quot;Bind asset ${escapeXml(asset.name)} in Orchestrator and replace the deterministic placeholder value&quot;]" DisplayName="Asset Bind Point ${escapeXml(asset.name)}" />
-    <Assign DisplayName="Store ${escapeXml(asset.name)} Placeholder in Config">
-      <Assign.To><OutArgument x:TypeArguments="x:Object">[dict_Config(${dictKey})]</OutArgument></Assign.To>
-      <Assign.Value><InArgument x:TypeArguments="x:Object">["${escapeXml(placeholderValue).replace(/"/g, '""')}"]</InArgument></Assign.Value>
+  const assets = Array.isArray(orchestratorArtifacts?.assets) ? orchestratorArtifacts.assets : [];
+  const queues = Array.isArray(orchestratorArtifacts?.queues) ? orchestratorArtifacts.queues : [];
+  const queueName = queues[0]?.name || "MainQueue";
+  const assetAssigns = assets.map((asset: any, index: number) => {
+    const name = String(asset?.name || `Asset_${index + 1}`).replace(/"/g, '""');
+    const fallback = /email/i.test(name)
+      ? "automation@example.invalid"
+      : /endpoint|url/i.test(name)
+        ? "https://example.invalid/api"
+        : /catalog/i.test(name)
+          ? "ReviewCatalog"
+          : `TODO_${name}`;
+    return `
+    <Assign DisplayName="Seed ${escapeXml(name)}">
+      <Assign.To><OutArgument x:TypeArguments="x:Object">[dict_Config("${escapeXml(name)}")]</OutArgument></Assign.To>
+      <Assign.Value><InArgument x:TypeArguments="x:String">"${escapeXml(fallback)}"</InArgument></Assign.Value>
     </Assign>`;
-  }
-
-  for (const queue of queues) {
-    const dictKey = isCSharp ? `"${escapeXml(queue.name)}"` : `&quot;${escapeXml(queue.name)}&quot;`;
-    assetActivities += `
-    <Assign DisplayName="Store Queue ${escapeXml(queue.name)} in Config">
-      <Assign.To><OutArgument x:TypeArguments="x:Object">[dict_Config(${dictKey})]</OutArgument></Assign.To>
-      <Assign.Value><InArgument x:TypeArguments="x:Object">["${escapeXml(queue.name).replace(/"/g, '""')}"]</InArgument></Assign.Value>
-    </Assign>`;
-  }
+  }).join("");
 
   return `<?xml version="1.0" encoding="utf-8"?>
 <Activity mc:Ignorable="sap sap2010" x:Class="InitAllSettings"
   xmlns="http://schemas.microsoft.com/netfx/2009/xaml/activities"
   xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
-  xmlns:s="clr-namespace:System;assembly=${nsS}"
   xmlns:sap="http://schemas.microsoft.com/netfx/2009/xaml/activities/presentation"
   xmlns:sap2010="http://schemas.microsoft.com/netfx/2010/xaml/activities/presentation"
-  xmlns:scg="clr-namespace:System.Collections.Generic;assembly=${nsScg}"
+  xmlns:scg="clr-namespace:System.Collections.Generic;assembly=mscorlib"
   xmlns:ui="http://schemas.uipath.com/workflow/activities"
   xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
   <x:Members>
@@ -2640,9 +2440,21 @@ function buildDeterministicInitAllSettingsXaml(
   </x:Members>
   <Sequence DisplayName="Initialize All Settings">
     <Sequence.Variables>
-      <Variable x:TypeArguments="scg:Dictionary(x:String, x:Object)" Name="dict_Config" Default="[${isCSharp ? "new Dictionary&lt;string, object&gt;()" : "New Dictionary(Of String, Object)"}]" />
+      <Variable x:TypeArguments="scg:Dictionary(x:String, x:Object)" Name="dict_Config" Default="[New Dictionary(Of String, Object)]" />
     </Sequence.Variables>
-    <ui:LogMessage Level="Info" Message="[&quot;Initializing deterministic configuration dictionary&quot;]" DisplayName="Log Config Start" />${assetActivities}
+    <ui:LogMessage Level="Info" Message="[&quot;Initializing deterministic configuration...&quot;]" DisplayName="Log Config Start" />
+    <Assign DisplayName="Seed OrchestratorQueueName">
+      <Assign.To><OutArgument x:TypeArguments="x:Object">[dict_Config(&quot;OrchestratorQueueName&quot;)]</OutArgument></Assign.To>
+      <Assign.Value><InArgument x:TypeArguments="x:String">"${escapeXml(queueName)}"</InArgument></Assign.Value>
+    </Assign>
+    <Assign DisplayName="Seed NotificationRecipientEmail">
+      <Assign.To><OutArgument x:TypeArguments="x:Object">[dict_Config(&quot;NotificationRecipientEmail&quot;)]</OutArgument></Assign.To>
+      <Assign.Value><InArgument x:TypeArguments="x:String">"automation@example.invalid"</InArgument></Assign.Value>
+    </Assign>
+    <Assign DisplayName="Seed ReviewTaskCatalog">
+      <Assign.To><OutArgument x:TypeArguments="x:Object">[dict_Config(&quot;ReviewTaskCatalog&quot;)]</OutArgument></Assign.To>
+      <Assign.Value><InArgument x:TypeArguments="x:String">"ReviewCatalog"</InArgument></Assign.Value>
+    </Assign>${assetAssigns}
     <Assign DisplayName="Output Config Dictionary">
       <Assign.To><OutArgument x:TypeArguments="scg:Dictionary(x:String, x:Object)">[out_Config]</OutArgument></Assign.To>
       <Assign.Value><InArgument x:TypeArguments="scg:Dictionary(x:String, x:Object)">[dict_Config]</InArgument></Assign.Value>
@@ -2656,9 +2468,10 @@ function expandDeterministicScaffoldToWorkflowMap(
   scaffoldSpec: TreeWorkflowSpec,
   processNodes: any[],
   projectName: string,
+  orchestratorArtifacts?: any,
 ): Map<string, { spec: TreeWorkflowSpec; processType: ProcessType }> {
   const results = new Map<string, { spec: TreeWorkflowSpec; processType: ProcessType }>();
-  const context = buildDeterministicContext(projectName, processNodes);
+  const context = buildDeterministicContext(projectName, processNodes, orchestratorArtifacts);
   const workflowRoleMap = new Map<string, DeterministicWorkflowRole>();
   const decompositionWorkflowNames = (scaffoldSpec.decomposition || [])
     .map(d => d.name.replace(/\s+/g, "_"))
@@ -2786,9 +2599,11 @@ export async function buildNuGetPackage(pkg: UiPathPackage, version: string = "1
   const requestedGenerationMode = generationMode;
   const projectName = (pkg.projectName || "Automation").replace(/\s+/g, "_");
   const sddContent = pkg.internal?.sddContent || "";
-  const orchestratorArtifacts = pkg.internal?.orchestratorArtifacts || null;
+  let orchestratorArtifacts = pkg.internal?.orchestratorArtifacts || null;
   const processNodes = pkg.internal?.processNodes || [];
   const processEdges = pkg.internal?.processEdges || [];
+  const deterministicContext = buildDeterministicContext(projectName, processNodes, orchestratorArtifacts, sddContent || undefined);
+  orchestratorArtifacts = ensureDeterministicQueueArtifact(orchestratorArtifacts, deterministicContext);
   const explicitAutomationPattern = (() => {
     const raw = pkg.internal?.automationType;
     return raw === "simple-linear" || raw === "api-data-driven" || raw === "ui-automation" || raw === "transactional-queue" || raw === "hybrid"
@@ -2849,7 +2664,7 @@ export async function buildNuGetPackage(pkg: UiPathPackage, version: string = "1
       treeEnrichment = scaffold.treeEnrichment;
       _usedAIFallback = scaffold.usedAIFallback;
       if (treeEnrichment.status === "success") {
-        allTreeEnrichments = expandDeterministicScaffoldToWorkflowMap(treeEnrichment.workflowSpec, processNodes, projectName);
+        allTreeEnrichments = expandDeterministicScaffoldToWorkflowMap(treeEnrichment.workflowSpec, processNodes, projectName, orchestratorArtifacts);
       }
     }
   } else {
@@ -4642,10 +4457,6 @@ export async function buildNuGetPackage(pkg: UiPathPackage, version: string = "1
       if (!workflowNames.includes(n)) workflowNames.push(n);
     }
     if (!workflowNames.includes("Main")) workflowNames.unshift("Main");
-    if (!workflowNames.includes(projectName) && processNodes.length > 0 && !enrichment?.decomposition?.length && !useReFramework) {
-      workflowNames.push(projectName);
-    }
-
     const painPoints = processNodes
       .filter((n: any) => n.isPainPoint)
       .map((n: any) => ({ name: n.name, description: n.description || "" }));

@@ -18,6 +18,8 @@ const CASE_FILE_MAP: Record<string, string> = {
   bgv9: "bgv9.json",
   po_invoice: "po_invoice.json",
   travel: "travel.json",
+  ta_interview: "ta_interview.json",
+  contingent_worker: "contingent_worker.json",
 };
 
 export function getSimulationCase(kind: string): SimulationCase {

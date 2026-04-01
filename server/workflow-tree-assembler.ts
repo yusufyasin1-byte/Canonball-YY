@@ -378,6 +378,7 @@ const IMPLICIT_OUTPUT_ACTIVITY_TYPES: Record<string, { outputPropNames: string[]
   "GetTransactionItem": { outputPropNames: ["TransactionItem"], defaultVar: "qi_TransactionItem", defaultType: "UiPath.Core.QueueItem" },
   "DeserializeJson": { outputPropNames: ["Result"], defaultVar: "obj_Result", defaultType: "Object" },
   "HttpClient": { outputPropNames: ["Result"], defaultVar: "str_ResponseBody", defaultType: "String" },
+  "HttpClientRequest": { outputPropNames: ["ResponseContent"], defaultVar: "str_ResponseBody", defaultType: "String" },
   "GetRobotAsset": { outputPropNames: ["AssetValue", "Value"], defaultVar: "str_RobotAssetValue", defaultType: "String" },
   "GetQueueItems": { outputPropNames: ["QueueItems"], defaultVar: "list_QueueItems", defaultType: "System.Collections.Generic.List(UiPath.Core.QueueItem)" },
   "AddQueueItem": { outputPropNames: ["QueueItem"], defaultVar: "qi_NewQueueItem", defaultType: "UiPath.Core.QueueItem" },
@@ -848,6 +849,10 @@ export function resolveActivityTemplate(
     return applyCatalogConformance(resolveGetAssetTemplate(node));
   }
 
+  if (templateName === "AddQueueItem") {
+    return applyCatalogConformance(resolveAddQueueItemTemplate(node));
+  }
+
   if (templateName === "GetCredential") {
     return applyCatalogConformance(resolveGetCredentialTemplate(node));
   }
@@ -1088,6 +1093,34 @@ function resolveGetCredentialTemplate(node: ActivityNode): string {
     `</ui:GetCredential>`;
 }
 
+function resolveAddQueueItemTemplate(node: ActivityNode): string {
+  const props = node.properties || {};
+  const displayName = escapeXml(node.displayName);
+  const queueName = getPropString(props, "QueueName", "queueName") || `[in_Config("OrchestratorQueueName").ToString()]`;
+  const itemInformation = getPropString(props, "ItemInformation", "itemInformation") || `[New Dictionary(Of String, Object)]`;
+  const reference = getPropString(props, "Reference", "reference");
+  const priority = getPropString(props, "Priority", "priority") || "Normal";
+  const outputVar = node.outputVar || "obj_NewQueueItem";
+
+  let xml = `<ui:AddQueueItem DisplayName="${displayName}" Priority="${escapeXml(priority)}">\n`;
+  xml += `  <ui:AddQueueItem.QueueName>\n`;
+  xml += `    <InArgument x:TypeArguments="x:String">${escapeXmlTextContent(ensureBracketWrapped(queueName))}</InArgument>\n`;
+  xml += `  </ui:AddQueueItem.QueueName>\n`;
+  xml += `  <ui:AddQueueItem.ItemInformation>\n`;
+  xml += `    <InArgument x:TypeArguments="scg:Dictionary(x:String, x:Object)">${escapeXmlTextContent(ensureBracketWrapped(itemInformation))}</InArgument>\n`;
+  xml += `  </ui:AddQueueItem.ItemInformation>\n`;
+  if (reference) {
+    xml += `  <ui:AddQueueItem.Reference>\n`;
+    xml += `    <InArgument x:TypeArguments="x:String">${escapeXmlTextContent(ensureBracketWrapped(reference))}</InArgument>\n`;
+    xml += `  </ui:AddQueueItem.Reference>\n`;
+  }
+  xml += `  <ui:AddQueueItem.QueueItem>\n`;
+  xml += `    <OutArgument x:TypeArguments="x:Object">${escapeXmlTextContent(ensureBracketWrapped(outputVar))}</OutArgument>\n`;
+  xml += `  </ui:AddQueueItem.QueueItem>\n`;
+  xml += `</ui:AddQueueItem>`;
+  return xml;
+}
+
 function wrapSmtpPropValue(val: string): string {
   if (!val) return val;
   return smartBracketWrap(val);
@@ -1125,7 +1158,7 @@ function resolveSendSmtpMailMessageTemplate(node: ActivityNode): string {
 function resolveHttpClientTemplate(node: ActivityNode): string {
   const props = node.properties || {};
   const displayName = escapeXml(node.displayName);
-  const endpointRaw = props.Endpoint || props.endpoint || props.URL || props.url;
+  const endpointRaw = props.Endpoint || props.endpoint || props.EndpointUrl || props.endpointUrl || props.URL || props.url;
   if (!endpointRaw) {
     throw new Error(`[HttpClient] Activity "${node.displayName}" is missing a required Endpoint/URL property — cannot emit HttpClient without a valid endpoint.`);
   }

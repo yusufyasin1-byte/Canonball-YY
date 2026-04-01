@@ -1,0 +1,132 @@
+{
+  "docPath": "C:/Users/yusuf.yasin/Downloads/TA_Interview_Agent_export.docx",
+  "outputDir": "C:/Users/yusuf.yasin/Downloads/CannonBall/simulation_output_ta_interview",
+  "version": "1.0.0-sim",
+  "cacheKey": "ta-interview-sim-local",
+  "package": {
+    "projectName": "TAInterviewAgent",
+    "description": "TA interview voice agent automation generated from exported documentation.",
+    "dependencies": [
+      "UiPath.System.Activities",
+      "UiPath.IntegrationService.Activities",
+      "UiPath.Persistence.Activities",
+      "UiPath.GenAI.Activities"
+    ],
+    "workflows": [
+      {
+        "name": "Main",
+        "description": "Primary TA interview orchestration entry point.",
+        "variables": [],
+        "steps": [
+          {
+            "activity": "Init TA Interview Run",
+            "activityType": "ui:LogMessage",
+            "activityPackage": "UiPath.System.Activities",
+            "properties": {
+              "Level": "Info",
+              "Message": "\"TA interview simulation started\""
+            },
+            "notes": "Seed entry workflow so local build has an explicit main workflow."
+          }
+        ]
+      }
+    ],
+    "internal": {
+      "sddContent": "",
+      "automationType": "hybrid",
+      "processNodes": [
+        { "id": "1", "name": "Poll New Job Requisitions", "nodeType": "start", "description": "Time-based trigger polls Ashby every 15 minutes for new job requisitions.", "system": "Orchestrator Triggers" },
+        { "id": "2", "name": "Retrieve Job Description and Hiring Notes", "nodeType": "task", "description": "Call Ashby API to retrieve job details, hiring notes, and recruiter context.", "system": "Ashby API" },
+        { "id": "3", "name": "Create Job Requisition Queue Item", "nodeType": "task", "description": "Create queue item in JobRequisitionQueue with job ID, title, description, and Slack IDs.", "system": "Orchestrator Queues" },
+        { "id": "4", "name": "Generate Core Interview Questions", "nodeType": "task", "description": "Use OpenAI to generate role-specific interview questions and probing follow-ups.", "system": "OpenAI API" },
+        { "id": "5", "name": "Store Generated Question Set", "nodeType": "task", "description": "Store generated question set in InterviewQuestions storage bucket keyed by Job ID.", "system": "Orchestrator Storage Buckets" },
+        { "id": "6", "name": "Create Hiring Manager Approval Task", "nodeType": "task", "description": "Create Action Center task in QuestionApprovalCatalog for hiring manager approval.", "system": "Action Center" },
+        { "id": "7", "name": "Notify Hiring Manager in Slack", "nodeType": "task", "description": "Send hiring manager Slack DM with preview and Action Center task link.", "system": "Slack API" },
+        { "id": "8", "name": "Approval Outcome Received", "nodeType": "decision", "description": "Wait for Action Center completion and branch based on approved, edited, or rework outcome.", "system": "Action Center" },
+        { "id": "9", "name": "Persist Approved or Edited Questions", "nodeType": "task", "description": "Retrieve approved or edited questions and overwrite InterviewQuestions bucket as needed.", "system": "Orchestrator Storage Buckets" },
+        { "id": "10", "name": "Create Interview Link in Ashby", "nodeType": "task", "description": "Create candidate interview event in Ashby and retrieve interview link.", "system": "Ashby API" },
+        { "id": "11", "name": "Queue Interview Session", "nodeType": "task", "description": "Create InterviewSessionQueue item with candidate metadata, job metadata, and approved questions.", "system": "Orchestrator Queues" },
+        { "id": "12", "name": "Initialize Voice Agent Session", "nodeType": "task", "description": "Create voice session via Vapi.ai or equivalent with anti-manipulation prompt and approved questions.", "system": "Voice Agent Platform API" },
+        { "id": "13", "name": "Candidate Joins Session", "nodeType": "decision", "description": "Track whether candidate joins, continues, no-shows, or exits early.", "system": "Voice Agent Platform Webhook" },
+        { "id": "14", "name": "Capture Transcript and Completion Metadata", "nodeType": "task", "description": "Store transcript, completion status, exit reason, and session duration for completed or partial sessions.", "system": "Voice Agent Platform Webhook" },
+        { "id": "15", "name": "Create Report Generation Queue Item", "nodeType": "task", "description": "Create ReportGenerationQueue item with transcript and metadata.", "system": "Orchestrator Queues" },
+        { "id": "16", "name": "Generate Interview Report", "nodeType": "task", "description": "Use OpenAI to generate structured interview report, recommendation, and observations.", "system": "OpenAI API" },
+        { "id": "17", "name": "Store Interview Report", "nodeType": "task", "description": "Store completed or partial report in InterviewReports storage bucket.", "system": "Orchestrator Storage Buckets" },
+        { "id": "18", "name": "Create Slack Delivery Queue Item", "nodeType": "task", "description": "Create SlackDeliveryQueue item with report content and recipient Slack IDs.", "system": "Orchestrator Queues" },
+        { "id": "19", "name": "Send Slack DMs", "nodeType": "task", "description": "Send report to hiring manager and next interviewer via Slack DM.", "system": "Slack API" },
+        { "id": "20", "name": "Hiring Manager Decides Next Step", "nodeType": "decision", "description": "Hiring manager reviews Slack-delivered report and decides whether candidate advances or is rejected.", "system": "Slack / Ashby" },
+        { "id": "21", "name": "Update Candidate Disposition", "nodeType": "task", "description": "Update candidate disposition in Ashby based on advance or reject decision.", "system": "Ashby API" },
+        { "id": "22", "name": "Advance Candidate End", "nodeType": "end", "description": "Candidate advances to the next stage.", "system": "Ashby" },
+        { "id": "23", "name": "Reject Candidate End", "nodeType": "end", "description": "Candidate rejected after interview review.", "system": "Ashby" }
+      ],
+      "processEdges": [
+        { "sourceNodeId": "1", "targetNodeId": "2", "label": "" },
+        { "sourceNodeId": "2", "targetNodeId": "3", "label": "" },
+        { "sourceNodeId": "3", "targetNodeId": "4", "label": "" },
+        { "sourceNodeId": "4", "targetNodeId": "5", "label": "" },
+        { "sourceNodeId": "5", "targetNodeId": "6", "label": "" },
+        { "sourceNodeId": "6", "targetNodeId": "7", "label": "" },
+        { "sourceNodeId": "7", "targetNodeId": "8", "label": "" },
+        { "sourceNodeId": "8", "targetNodeId": "9", "label": "Approved or Edited" },
+        { "sourceNodeId": "8", "targetNodeId": "4", "label": "Needs Rework" },
+        { "sourceNodeId": "9", "targetNodeId": "10", "label": "" },
+        { "sourceNodeId": "10", "targetNodeId": "11", "label": "" },
+        { "sourceNodeId": "11", "targetNodeId": "12", "label": "" },
+        { "sourceNodeId": "12", "targetNodeId": "13", "label": "" },
+        { "sourceNodeId": "13", "targetNodeId": "14", "label": "Completed / Partial / No-show" },
+        { "sourceNodeId": "14", "targetNodeId": "15", "label": "" },
+        { "sourceNodeId": "15", "targetNodeId": "16", "label": "" },
+        { "sourceNodeId": "16", "targetNodeId": "17", "label": "" },
+        { "sourceNodeId": "17", "targetNodeId": "18", "label": "" },
+        { "sourceNodeId": "18", "targetNodeId": "19", "label": "" },
+        { "sourceNodeId": "19", "targetNodeId": "20", "label": "" },
+        { "sourceNodeId": "20", "targetNodeId": "21", "label": "Advance or Reject" },
+        { "sourceNodeId": "21", "targetNodeId": "22", "label": "Advance" },
+        { "sourceNodeId": "21", "targetNodeId": "23", "label": "Reject" }
+      ],
+      "orchestratorArtifacts": {
+        "queues": [
+          { "name": "JobRequisitionQueue", "description": "Holds new job requisitions for question generation.", "maxRetries": 3, "uniqueReference": true },
+          { "name": "InterviewSessionQueue", "description": "Holds approved interview sessions with candidate and job metadata for voice agent initiation.", "maxRetries": 3, "uniqueReference": true },
+          { "name": "ReportGenerationQueue", "description": "Holds completed interview transcripts and metadata for AI report generation.", "maxRetries": 3, "uniqueReference": true },
+          { "name": "SlackDeliveryQueue", "description": "Holds generated interview reports and recipient Slack IDs for DM delivery.", "maxRetries": 3, "uniqueReference": true }
+        ],
+        "assets": [
+          { "name": "AshbyAPIKey", "type": "Credential", "value": "", "description": "API credential for Ashby integration." },
+          { "name": "OpenAIAPIKey", "type": "Credential", "value": "", "description": "API credential for OpenAI question and report generation." },
+          { "name": "SlackBotToken", "type": "Credential", "value": "", "description": "Bot token for Slack DM delivery." },
+          { "name": "VapiAPIKey", "type": "Credential", "value": "", "description": "API credential for voice agent platform integration." },
+          { "name": "DefaultQuestionTemplate", "type": "Text", "value": "", "description": "Fallback question template used if AI generation fails." }
+        ],
+        "storageBuckets": [
+          { "name": "InterviewQuestions", "description": "Stores generated and approved question sets keyed by Job ID." },
+          { "name": "InterviewSchedule", "description": "Stores created interview links keyed by Job ID and Candidate ID." },
+          { "name": "InterviewReports", "description": "Stores completed and partial interview reports." }
+        ],
+        "triggers": [
+          { "name": "JobRequisitionPollingEvery15Min", "type": "Time", "cron": "0 0/15 * * * ?", "description": "Polls Ashby every 15 minutes for new requisitions." },
+          { "name": "InterviewSessionQueueTrigger", "type": "Queue", "queueName": "InterviewSessionQueue", "description": "Starts interview session workflow when approved interview items are queued." },
+          { "name": "ReportGenerationQueueTrigger", "type": "Queue", "queueName": "ReportGenerationQueue", "description": "Starts report generation workflow when transcripts are queued." },
+          { "name": "SlackDeliveryQueueTrigger", "type": "Queue", "queueName": "SlackDeliveryQueue", "description": "Starts Slack delivery workflow when reports are queued." }
+        ],
+        "actionCenter": [
+          { "taskCatalog": "QuestionApprovalCatalog", "assignedRole": "Hiring Manager" }
+        ]
+      },
+      "targetFramework": "Windows",
+      "autopilotEnabled": false,
+      "useReFramework": true,
+      "complexityTier": "complex",
+      "forceRebuild": true
+    },
+    "agents": [
+      {
+        "description": "TAInterviewVoiceAgent for anti-manipulation first-round interview execution.",
+        "tools": ["RetrieveAshbyJob", "GenerateInterviewQuestions", "CreateVoiceSession", "SendSlackDM"],
+        "guardrails": ["Require structured, role-specific questioning", "Probe vague answers up to two times", "Flag no-show, early exit, and time-limit outcomes explicitly"],
+        "maxIterations": 2
+      }
+    ],
+    "knowledgeBases": ["ta-interview-agent"]
+  }
+}

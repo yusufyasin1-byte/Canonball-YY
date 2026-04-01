@@ -757,6 +757,57 @@ describe("DHG generator with analysis context", () => {
     expect(md).toContain("**Deployment Readiness:**");
   });
 
+  it("downgrades readiness score details for baseline packages with bind points", () => {
+    const analysis = runDhgAnalysis([{
+      name: "Main.xaml",
+      content: makeXaml(`<ui:LogMessage DisplayName="Queue Bind Point - Orchestrator Queue" Message="[&quot;Implement queue ingestion&quot;]" />`),
+    }]);
+    const context: DhgContext = {
+      projectName: "TestProject",
+      workflowNames: ["Main"],
+      generationMode: "baseline_openable",
+      analysis,
+      xamlEntries: [{
+        name: "Main.xaml",
+        content: makeXaml(`<ui:LogMessage DisplayName="Queue Bind Point - Orchestrator Queue" Message="[&quot;Implement queue ingestion&quot;]" />`),
+      }],
+    };
+    const md = generateDhgFromOutcomeReport(makeMinimalReport(), context);
+    expect(md).toContain("**Deployment Readiness:** Needs Work (55%)");
+    expect(md).toContain("**Overall: Needs Work");
+    expect(md).toContain("Override for Baseline Mode");
+  });
+
+  it("includes workflow contract guidance for generated XAML entries", () => {
+    const mainXaml = `
+<Activity xmlns="http://schemas.microsoft.com/netfx/2009/xaml/activities"
+  xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+  xmlns:ui="http://schemas.uipath.com/workflow/activities">
+  <x:Members>
+    <x:Property Name="in_Config" Type="InArgument(x:String)" />
+    <x:Property Name="out_Result" Type="OutArgument(x:String)" />
+  </x:Members>
+  <Sequence>
+    <ui:LogMessage DisplayName="Data Service Bind Point - Data Service"
+      Message="[&quot;Implement persistence&quot;]" />
+  </Sequence>
+</Activity>`;
+    const analysis = runDhgAnalysis([{ name: "Main.xaml", content: mainXaml }]);
+    const context: DhgContext = {
+      projectName: "TestProject",
+      workflowNames: ["Main"],
+      generationMode: "baseline_openable",
+      analysis,
+      xamlEntries: [{ name: "Main.xaml", content: mainXaml }],
+    };
+    const md = generateDhgFromOutcomeReport(makeMinimalReport(), context);
+    expect(md).toContain("Workflow Contracts");
+    expect(md).toContain("Orchestration");
+    expect(md).toContain("in_Config");
+    expect(md).toContain("out_Result");
+    expect(md).toContain("Contains system bind points that must be implemented for production.");
+  });
+
   it("includes Retry Policy and SLA Guidance in queue section", () => {
     const analysis = runDhgAnalysis([{
       name: "lib/Main.xaml",

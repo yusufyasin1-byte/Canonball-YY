@@ -443,6 +443,7 @@ class CatalogService {
 
     const knownPropertyNames = new Set(schema.activity.properties.map(p => p.name));
     const className = tag.includes(":") ? tag.split(":").pop()! : tag;
+    const normalizedChildren = children.map(child => child.includes(":") ? child.split(":").pop()! : child);
     const isComplete = schema.activity.propertiesComplete === true;
 
     if (isComplete) {
@@ -459,7 +460,7 @@ class CatalogService {
         }
       }
 
-      for (const childName of children) {
+      for (const childName of normalizedChildren) {
         const simpleName = childName.includes(".") ? childName.split(".").pop()! : childName;
         if (FRAMEWORK_CHILD_ELEMENTS.has(simpleName) || FRAMEWORK_CHILD_ELEMENTS.has(childName)) continue;
         if (!knownPropertyNames.has(simpleName) && !FRAMEWORK_ATTRIBUTES.has(simpleName)) {
@@ -471,7 +472,7 @@ class CatalogService {
 
     for (const prop of schema.activity.properties) {
       const hasAttribute = prop.name in attributes;
-      const hasChild = children.some(c => c === prop.name || c === `${tag.split(":").pop()}.${prop.name}`);
+      const hasChild = normalizedChildren.some(c => c === prop.name || c === `${className}.${prop.name}`);
 
       if (prop.required && !hasAttribute && !hasChild) {
         result.valid = false;

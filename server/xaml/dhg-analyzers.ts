@@ -143,7 +143,8 @@ export function scanCredentialAssets(
       let assetName = nameMatch ? nameMatch[1] : "UNKNOWN";
       assetName = assetName.replace(/&quot;/g, "").replace(/^"|"$/g, "");
 
-      const isHardcoded = !!nameMatch && !nameMatch[1].startsWith("[") && !nameMatch[1].includes("variable");
+      const isInitAllSettingsAssetContract = shortName.toLowerCase() === "initallsettings.xaml";
+      const isHardcoded = !!nameMatch && !nameMatch[1].startsWith("[") && !nameMatch[1].includes("variable") && !isInitAllSettingsAssetContract;
 
       const resultMatch = contextBlock.match(RESULT_ATTR);
       const variableName = resultMatch ? resultMatch[1] : undefined;

@@ -1,0 +1,133 @@
+{
+  "docPath": "C:/Users/yusuf.yasin/Downloads/Automate_Contingent_Worker_hiring_to_retire_export.docx",
+  "outputDir": "C:/Users/yusuf.yasin/Downloads/CannonBall/simulation_output_contingent_worker",
+  "version": "1.0.0-sim",
+  "cacheKey": "contingent-worker-sim-local",
+  "package": {
+    "projectName": "ContingentWorkerHireToRetire",
+    "description": "Contingent worker hire-to-retire automation generated from exported documentation.",
+    "dependencies": [
+      "UiPath.System.Activities",
+      "UiPath.IntegrationService.Activities",
+      "UiPath.Persistence.Activities",
+      "UiPath.Excel.Activities",
+      "UiPath.UIAutomation.Activities"
+    ],
+    "workflows": [
+      {
+        "name": "Main",
+        "description": "Primary contingent worker hire-to-retire orchestration entry point.",
+        "variables": [],
+        "steps": [
+          {
+            "activity": "Init Contingent Worker Run",
+            "activityType": "ui:LogMessage",
+            "activityPackage": "UiPath.System.Activities",
+            "properties": {
+              "Level": "Info",
+              "Message": "\"Contingent worker simulation started\""
+            },
+            "notes": "Seed entry workflow so local build has an explicit main workflow."
+          }
+        ]
+      }
+    ],
+    "internal": {
+      "sddContent": "",
+      "automationType": "hybrid",
+      "processNodes": [
+        { "id": "1", "name": "Poll Approved Hiring Requisitions", "nodeType": "start", "description": "Poll Jira every 15 minutes on business days for requisitions approved since Dispatcher_LastRun_Timestamp.", "system": "Jira API" },
+        { "id": "2", "name": "Create Candidate Submission Work Items", "nodeType": "task", "description": "Create queue items for newly approved requisitions and publish vendor-facing requisition details.", "system": "Orchestrator Queues" },
+        { "id": "3", "name": "Screen Candidate Submission", "nodeType": "task", "description": "Perform duplicate, Workday history, and policy checks on candidate submissions from Queue_CandidateSubmissions.", "system": "Workday API" },
+        { "id": "4", "name": "Route Exceptions or Interviews", "nodeType": "decision", "description": "Route candidates to exception handling, interview scheduling, or rejection based on automated screening.", "system": "Internal App / Action Center" },
+        { "id": "5", "name": "Schedule Interview 1", "nodeType": "task", "description": "Schedule first-round interview using Microsoft Graph calendar availability for the Sr Developer interviewer.", "system": "Microsoft Graph / Calendar" },
+        { "id": "6", "name": "Capture Interview 1 Result", "nodeType": "task", "description": "Capture interview 1 result via Action Center and Internal App, then route to interview 2 or reject.", "system": "Action Center / Internal App" },
+        { "id": "7", "name": "Schedule Interview 2", "nodeType": "task", "description": "Schedule second-round interview for the Architect interviewer.", "system": "Microsoft Graph / Calendar" },
+        { "id": "8", "name": "Capture Interview 2 Result", "nodeType": "task", "description": "Capture interview 2 outcome and route selected candidates to SOW/PR generation.", "system": "Action Center / Internal App" },
+        { "id": "9", "name": "Generate SOW and PR", "nodeType": "task", "description": "Generate SOW, route DocuSign signature, create Coupa purchase requisition, and wait for PO issuance.", "system": "DocuSign / Coupa" },
+        { "id": "10", "name": "Join Confirmed?", "nodeType": "decision", "description": "Determine whether the selected candidate confirms joining or drops out before onboarding.", "system": "Vendor Portal / Action Center" },
+        { "id": "11", "name": "Onboard Contingent Worker", "nodeType": "task", "description": "POST contingent worker to Workday, set status Active, and start BGV deadline tracking.", "system": "Workday API" },
+        { "id": "12", "name": "Reconcile Invoices", "nodeType": "task", "description": "Retrieve pending Coupa invoices, reconcile against Certinia and PO data, then auto-approve or route to manual review.", "system": "Coupa / Certinia" },
+        { "id": "13", "name": "Handle High Value or Dispute Review", "nodeType": "task", "description": "Create Action Center review for invoice exceptions, high-value checks, or vendor disputes.", "system": "Action Center / Email" },
+        { "id": "14", "name": "Initiate Offboarding", "nodeType": "task", "description": "Process offboarding decision, notify vendor of notice period, and raise People Ops Jira ticket.", "system": "Action Center / Jira / Email" },
+        { "id": "15", "name": "Monitor Termination and Deprovision", "nodeType": "task", "description": "Monitor Workday termination, confirm IT access deprovisioning, and notify manager to collect assets.", "system": "Workday / IT" },
+        { "id": "16", "name": "Run GDPR Retention and Erasure", "nodeType": "task", "description": "Run daily retention purge and Action Center-triggered erasure requests for contingent worker records.", "system": "Internal App / Storage Bucket" },
+        { "id": "17", "name": "Write SOX Audit Log", "nodeType": "task", "description": "Write immutable structured SOX audit entries for financial events to AuditLog_CW_HireToRetire storage bucket.", "system": "Storage Bucket" },
+        { "id": "18", "name": "Lifecycle Complete", "nodeType": "end", "description": "End state for completed contingent worker hire-to-retire processing.", "system": "Orchestrator" }
+      ],
+      "processEdges": [
+        { "sourceNodeId": "1", "targetNodeId": "2", "label": "" },
+        { "sourceNodeId": "2", "targetNodeId": "3", "label": "" },
+        { "sourceNodeId": "3", "targetNodeId": "4", "label": "" },
+        { "sourceNodeId": "4", "targetNodeId": "5", "label": "Interview path" },
+        { "sourceNodeId": "4", "targetNodeId": "13", "label": "Exception / reject" },
+        { "sourceNodeId": "5", "targetNodeId": "6", "label": "" },
+        { "sourceNodeId": "6", "targetNodeId": "7", "label": "Pass" },
+        { "sourceNodeId": "6", "targetNodeId": "13", "label": "Reject" },
+        { "sourceNodeId": "7", "targetNodeId": "8", "label": "" },
+        { "sourceNodeId": "8", "targetNodeId": "9", "label": "Selected" },
+        { "sourceNodeId": "8", "targetNodeId": "13", "label": "Rejected" },
+        { "sourceNodeId": "9", "targetNodeId": "10", "label": "" },
+        { "sourceNodeId": "10", "targetNodeId": "11", "label": "Join confirmed" },
+        { "sourceNodeId": "10", "targetNodeId": "2", "label": "Dropout / restart sourcing" },
+        { "sourceNodeId": "11", "targetNodeId": "12", "label": "" },
+        { "sourceNodeId": "12", "targetNodeId": "13", "label": "Exception / high value" },
+        { "sourceNodeId": "12", "targetNodeId": "14", "label": "Offboarding trigger" },
+        { "sourceNodeId": "13", "targetNodeId": "17", "label": "" },
+        { "sourceNodeId": "14", "targetNodeId": "15", "label": "" },
+        { "sourceNodeId": "15", "targetNodeId": "16", "label": "" },
+        { "sourceNodeId": "16", "targetNodeId": "17", "label": "" },
+        { "sourceNodeId": "17", "targetNodeId": "18", "label": "" }
+      ],
+      "orchestratorArtifacts": {
+        "queues": [
+          { "name": "Queue_CandidateSubmissions", "description": "Candidate submissions from vendor portal for automated screening.", "maxRetries": 3, "uniqueReference": true },
+          { "name": "Queue_InterviewScheduling", "description": "Candidates awaiting interview 1 scheduling.", "maxRetries": 3, "uniqueReference": true },
+          { "name": "Queue_Interview2Scheduling", "description": "Candidates awaiting interview 2 scheduling.", "maxRetries": 3, "uniqueReference": true },
+          { "name": "Queue_CandidateSelected", "description": "Selected candidates awaiting SOW and PR processing.", "maxRetries": 3, "uniqueReference": true },
+          { "name": "Queue_JoinConfirmation", "description": "Candidates awaiting join confirmation and onboarding.", "maxRetries": 3, "uniqueReference": true },
+          { "name": "Queue_InvoiceReconciliation", "description": "Monthly contingent worker invoice reconciliation work items.", "maxRetries": 3, "uniqueReference": true },
+          { "name": "Queue_OffboardingInitiated", "description": "Offboarding work items triggered by Services Delivery.", "maxRetries": 3, "uniqueReference": true },
+          { "name": "Queue_Exceptions", "description": "Central exception queue for routing manual review items.", "maxRetries": 1, "uniqueReference": false }
+        ],
+        "assets": [
+          { "name": "Dispatcher_LastRun_Timestamp", "type": "Text", "value": "", "description": "Timestamp for requisition dispatcher delta polling." },
+          { "name": "GDPR_RetentionDays_RejectedCandidate", "type": "Integer", "value": "", "description": "Retention window for rejected candidate records." },
+          { "name": "SOX_HighValueInvoiceThreshold", "type": "Integer", "value": "", "description": "Threshold above which invoice approval requires review." },
+          { "name": "BGV_DefaultDeadlineDays", "type": "Integer", "value": "", "description": "Standard BGV evidence deadline in days." },
+          { "name": "WorkdayApiConnectionName", "type": "Text", "value": "", "description": "Configured Workday API connection." },
+          { "name": "CoupaApiConnectionName", "type": "Text", "value": "", "description": "Configured Coupa API connection." }
+        ],
+        "storageBuckets": [
+          { "name": "AuditLog_CW_HireToRetire", "description": "Immutable SOX audit log storage." },
+          { "name": "SOW_Documents", "description": "Generated SOWs and signed contract documents." }
+        ],
+        "triggers": [
+          { "name": "CW_Hiring_Dispatcher_Every15Min", "type": "Time", "cron": "0 0/15 7-19 ? * MON-FRI *", "description": "Poll Jira for approved requisitions every 15 minutes on business days." },
+          { "name": "CW_Invoice_Polling_Every60Min", "type": "Time", "cron": "0 0 * * * ?", "description": "Poll Coupa hourly for new contingent worker invoices." },
+          { "name": "CW_Retention_Daily_0600", "type": "Time", "cron": "0 0 6 * * ?", "description": "Run GDPR retention and erasure processing daily." },
+          { "name": "CW_JoinConfirmationQueueTrigger", "type": "Queue", "queueName": "Queue_JoinConfirmation", "description": "Process join confirmations and onboarding." }
+        ],
+        "actionCenter": [
+          { "taskCatalog": "CW_InvoiceManualReview", "assignedRole": "Services Delivery Team" },
+          { "taskCatalog": "CW_OffboardingDecision", "assignedRole": "Services Delivery Manager" },
+          { "taskCatalog": "CW_GDPRErasureRequest", "assignedRole": "Data Protection Officer" }
+        ]
+      },
+      "targetFramework": "Windows",
+      "autopilotEnabled": false,
+      "useReFramework": true,
+      "complexityTier": "complex",
+      "forceRebuild": true
+    },
+    "agents": [
+      {
+        "description": "CWLifecycleAutomationAgent for contingent worker lifecycle orchestration.",
+        "tools": ["PollJiraReqs", "ScreenCandidates", "CreateCoupaPR", "OnboardWorkday", "ReconcileInvoices"],
+        "guardrails": ["Respect SOX approval thresholds", "Do not auto-terminate without explicit offboarding trigger", "Preserve GDPR retention controls"],
+        "maxIterations": 2
+      }
+    ],
+    "knowledgeBases": ["cw-hire-to-retire"]
+  }
+}
