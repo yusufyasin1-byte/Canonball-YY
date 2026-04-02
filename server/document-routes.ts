@@ -1176,6 +1176,21 @@ export function registerDocumentRoutes(app: Express): void {
         return res.status(500).json({ message: "Invalid package data" });
       }
 
+      const requestedFormat = String(req.query.format || "").toLowerCase();
+      if (requestedFormat === "solution") {
+        if (!pipelineResult.solutionArtifact?.buffer || pipelineResult.solutionArtifact.buffer.length === 0) {
+          return res.status(500).json({
+            error: "SOLUTION_BUNDLE_EMPTY",
+            message: "Solution bundle is unavailable for this build. Please regenerate the artifacts.",
+          });
+        }
+
+        res.setHeader("Content-Type", "application/zip");
+        res.setHeader("Content-Disposition", `attachment; filename="${pipelineResult.solutionArtifact.fileName}"`);
+        res.end(pipelineResult.solutionArtifact.buffer);
+        return;
+      }
+
       if (!pipelineResult.packageBuffer || pipelineResult.packageBuffer.length === 0) {
         return res.status(500).json({
           error: "PACKAGE_EMPTY",

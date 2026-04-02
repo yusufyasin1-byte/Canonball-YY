@@ -41,6 +41,8 @@ import {
 } from "./meta-validation";
 import { classifyComplexity, estimateComplexityFromContext, type ComplexityTier, type ComplexityClassification } from "./complexity-classifier";
 import { recordPipelineHealth, computePipelineHealthFromResult } from "./pipeline-health";
+import { buildUiPathSolutionArtifact } from "./uipath-solution-builder";
+import type { UiPathSolutionArtifact } from "./types/uipath-solution";
 
 export type { GenerationMode };
 export type { ComplexityTier, ComplexityClassification };
@@ -292,6 +294,7 @@ export interface PipelineOutcomeReport {
 
 export interface PipelineResult {
   packageBuffer: Buffer;
+  solutionArtifact?: UiPathSolutionArtifact;
   gaps: XamlGap[];
   usedPackages: string[];
   qualityGateResult?: QualityGateResult;
@@ -1378,6 +1381,21 @@ export async function compilePackageFromSpecs(
       analysisCount: dhgResult.analysisReports.length,
     });
 
+    tracker.start("solution_bundle", "Building solution-ready artifact bundle");
+    const solutionArtifact = buildUiPathSolutionArtifact({
+      pkg: enriched,
+      buildResult,
+      packageBuffer: finalPackageBuffer,
+      projectName: dhgResult.projectName,
+      dhgContent: dhgResult.dhgContent,
+      ctx,
+      version: ver,
+    });
+    tracker.complete("solution_bundle", `Solution bundle built (${Math.round(solutionArtifact.buffer.length / 1024)}KB)`, {
+      sizeBytes: solutionArtifact.buffer.length,
+      componentCount: solutionArtifact.components.length,
+    });
+
     if (pipelineWarnings.length > 0) {
       for (const w of pipelineWarnings) {
         tracker.warn(w.stage, w.message);
@@ -1420,6 +1438,7 @@ export async function compilePackageFromSpecs(
 
     const result: PipelineResult = {
       packageBuffer: finalPackageBuffer,
+      solutionArtifact,
       gaps: buildResult.gaps,
       usedPackages: buildResult.usedPackages,
       qualityGateResult: postCorrectionQualityGate || buildResult.qualityGateResult,
