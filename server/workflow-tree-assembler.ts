@@ -1097,26 +1097,28 @@ function resolveAddQueueItemTemplate(node: ActivityNode): string {
   const props = node.properties || {};
   const displayName = escapeXml(node.displayName);
   const queueName = getPropString(props, "QueueName", "queueName") || `[in_Config("OrchestratorQueueName").ToString()]`;
-  const itemInformation = getPropString(props, "ItemInformation", "itemInformation") || `[New Dictionary(Of String, Object)]`;
+  const itemInformation = getPropString(props, "ItemInformation", "itemInformation") || "";
   const reference = getPropString(props, "Reference", "reference");
   const priority = getPropString(props, "Priority", "priority") || "Normal";
-  const outputVar = node.outputVar || "obj_NewQueueItem";
 
-  let xml = `<ui:AddQueueItem DisplayName="${displayName}" Priority="${escapeXml(priority)}">\n`;
-  xml += `  <ui:AddQueueItem.QueueName>\n`;
-  xml += `    <InArgument x:TypeArguments="x:String">${escapeXmlTextContent(ensureBracketWrapped(queueName))}</InArgument>\n`;
-  xml += `  </ui:AddQueueItem.QueueName>\n`;
-  xml += `  <ui:AddQueueItem.ItemInformation>\n`;
-  xml += `    <InArgument x:TypeArguments="scg:Dictionary(x:String, x:Object)">${escapeXmlTextContent(ensureBracketWrapped(itemInformation))}</InArgument>\n`;
-  xml += `  </ui:AddQueueItem.ItemInformation>\n`;
+  let xml = `<ui:AddQueueItem DisplayName="${displayName}" Priority="${escapeXml(priority)}" QueueType="${escapeXml(ensureBracketWrapped(queueName))}"`;
   if (reference) {
-    xml += `  <ui:AddQueueItem.Reference>\n`;
-    xml += `    <InArgument x:TypeArguments="x:String">${escapeXmlTextContent(ensureBracketWrapped(reference))}</InArgument>\n`;
-    xml += `  </ui:AddQueueItem.Reference>\n`;
+    xml += ` Reference="${escapeXml(ensureBracketWrapped(reference))}"`;
   }
-  xml += `  <ui:AddQueueItem.QueueItem>\n`;
-  xml += `    <OutArgument x:TypeArguments="x:Object">${escapeXmlTextContent(ensureBracketWrapped(outputVar))}</OutArgument>\n`;
-  xml += `  </ui:AddQueueItem.QueueItem>\n`;
+  xml += `>\n`;
+  xml += `  <ui:AddQueueItem.ItemInformation>\n`;
+  const normalizedItemInformation = itemInformation.trim();
+  const isDefaultEmptyDictionary =
+    normalizedItemInformation === "[New Dictionary(Of String, Object)]" ||
+    normalizedItemInformation === "New Dictionary(Of String, Object)" ||
+    normalizedItemInformation === "[New Dictionary(Of String, InArgument)]" ||
+    normalizedItemInformation === "New Dictionary(Of String, InArgument)";
+  if (normalizedItemInformation && !isDefaultEmptyDictionary) {
+    xml += `    <InArgument x:TypeArguments="scg:Dictionary(x:String, x:Object)">${escapeXmlTextContent(ensureBracketWrapped(itemInformation))}</InArgument>\n`;
+  } else {
+    xml += `    <scg:Dictionary x:TypeArguments="x:String, InArgument" />\n`;
+  }
+  xml += `  </ui:AddQueueItem.ItemInformation>\n`;
   xml += `</ui:AddQueueItem>`;
   return xml;
 }
