@@ -2013,14 +2013,15 @@ function makeDeterministicActivity(
   template: string,
   displayName: string,
   properties: Record<string, string> = {},
+  options?: { outputVar?: string; outputType?: string | null; },
 ): TreeWorkflowNode {
   return {
     kind: "activity",
     template,
     displayName,
     properties,
-    outputVar: null,
-    outputType: null,
+    outputVar: options?.outputVar || null,
+    outputType: options?.outputType ?? null,
     errorHandling: "none",
   };
 }
@@ -2055,6 +2056,15 @@ type DeterministicWorkflowContext = {
   queueName: string;
 };
 
+export function buildDeterministicQueueReferenceExpression(context: DeterministicWorkflowContext): string {
+  const safeProjectName = String(context.projectName || "WorkItem").replace(/"/g, '""');
+  return `[String.Format("${safeProjectName}-{0}", Guid.NewGuid().ToString("N"))]`;
+}
+
+export function buildDeterministicQueueItemInformationExpression(context: DeterministicWorkflowContext): string {
+  return "[New Dictionary(Of String, Object)]";
+}
+
 function isQueueRelatedNode(node: any): boolean {
   const text = `${node?.name || ""} ${node?.description || ""} ${node?.system || ""}`.toLowerCase();
   return /queue|transaction item|work item|dispatcher|ingest|fetch.*calendar|get next/.test(text);
@@ -2070,9 +2080,25 @@ function buildQueueImplementationActivities(
 
   if (/(create|enqueue|add|build).*queue|queue item|work item|dispatcher|ingest|fetch.*calendar/.test(text)) {
     children.push(
-      makeDeterministicActivity("LogMessage", "Queue Activity Bind Point", {
+      makeDeterministicActivity("Assign", "Build Queue Reference", {
+        To: "str_QueueItemReference",
+        Value: buildDeterministicQueueReferenceExpression(context),
+      }),
+    );
+    children.push(
+      makeDeterministicActivity("AddQueueItem", "Add Queue Work Item", {
+        QueueName: queueNameExpr,
+        ItemInformation: buildDeterministicQueueItemInformationExpression(context),
+        Reference: "[str_QueueItemReference]",
+        Priority: "Normal",
+      }, {
+        outputVar: "obj_QueueItemResult",
+      }),
+    );
+    children.push(
+      makeDeterministicActivity("LogMessage", "Queue Work Item Created", {
         Level: "Info",
-        Message: `"Implement queue producer/dispatcher logic for ${String(node?.system || context.queueName || "Orchestrator queue").replace(/"/g, '""')}"`,
+        Message: `["Queued work item with reference: " & str_QueueItemReference]`,
       }),
     );
   }
@@ -2254,7 +2280,8 @@ function buildGenericDeterministicSubWorkflowSpec(
   if (role === "intake_dispatcher") argumentsList.push({ name: "out_ItemCount", direction: "OutArgument", type: "x:Int32" });
   if (role === "review_exception") argumentsList.push({ name: "in_RequiresReview", direction: "InArgument", type: "x:Boolean" });
   if (role === "intake_dispatcher") {
-    variables.push({ name: "dict_QueueItemData", type: "System.Collections.Generic.Dictionary(System.String,System.Object)" });
+    variables.push({ name: "str_QueueItemReference", type: "String", default: '""' });
+    variables.push({ name: "obj_QueueItemResult", type: "Object", default: "Nothing" });
   }
 
   const children: TreeWorkflowNode[] = [
@@ -2262,14 +2289,16 @@ function buildGenericDeterministicSubWorkflowSpec(
     makeDeterministicActivity("LogMessage", "Workflow Purpose", { Level: "Info", Message: buildDeterministicRoleSummary(role, context) }),
   ];
 
+  let intakeQueueEnqueueAdded = false;
   for (const node of childNodes) {
     children.push(makeDeterministicActivity("LogMessage", `Step: ${node.name}`, {
       Level: "Info",
       Message: `["Execute step: ${String(node.description || node.name || "process step").replace(/"/g, '""')}"]`,
     }));
-    const queueActivities = role === "intake_dispatcher" && isQueueRelatedNode(node)
+    const queueActivities = role === "intake_dispatcher" && isQueueRelatedNode(node) && !intakeQueueEnqueueAdded
       ? buildQueueImplementationActivities(context, node)
       : [];
+    if (queueActivities.length > 0) intakeQueueEnqueueAdded = true;
     const systemActivity = queueActivities.length === 0
       ? selectSystemActivity(node.system || "", node.description || "")
       : null;

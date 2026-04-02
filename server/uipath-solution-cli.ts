@@ -78,6 +78,150 @@ export type UiPathSolutionDeployOptions = {
   traceLevel?: "None" | "Critical" | "Error" | "Warning" | "Information" | "Verbose";
 };
 
+export type UiPathSolutionExpectedResources = {
+  processes?: string[];
+  assets?: string[];
+  queues?: string[];
+  buckets?: string[];
+};
+
+export type UiPathSolutionFolderSnapshot = {
+  processes: string[];
+  assets: string[];
+  queues: string[];
+  buckets: string[];
+};
+
+export type UiPathSolutionFolderValidationResult = {
+  ok: boolean;
+  folderId: string;
+  folderName: string;
+  actual: UiPathSolutionFolderSnapshot;
+  missing: UiPathSolutionExpectedResources;
+};
+
+export type UiPathSolutionFolderValidationOptions = UiPathSolutionExpectedResources & {
+  folderName?: string;
+  folderId?: string;
+};
+
+function odataEscape(value: string): string {
+  return value.replace(/'/g, "''");
+}
+
+function normalizeUiPathResourceNames(values: string[] | undefined): string[] {
+  return Array.from(new Set((values || []).map((value) => value.trim()).filter(Boolean))).sort((a, b) => a.localeCompare(b));
+}
+
+function missingUiPathResourceNames(actual: string[], expected: string[] | undefined): string[] {
+  const actualSet = new Set(normalizeUiPathResourceNames(actual).map((value) => value.toLowerCase()));
+  return normalizeUiPathResourceNames(expected).filter((value) => !actualSet.has(value.toLowerCase()));
+}
+
+export function diffUiPathSolutionFolderResources(
+  actual: UiPathSolutionFolderSnapshot,
+  expected: UiPathSolutionExpectedResources,
+): UiPathSolutionFolderValidationResult["missing"] {
+  return {
+    processes: missingUiPathResourceNames(actual.processes, expected.processes),
+    assets: missingUiPathResourceNames(actual.assets, expected.assets),
+    queues: missingUiPathResourceNames(actual.queues, expected.queues),
+    buckets: missingUiPathResourceNames(actual.buckets, expected.buckets),
+  };
+}
+
+function buildUiPathOrchestratorBaseUrl(auth: UiPathSolutionCliAuth): string {
+  const root = (auth.orchestratorUrl || DEFAULT_UIPATH_ORCHESTRATOR_URL).replace(/\/+$/, "");
+  return `${root}/${auth.organizationName}/${auth.tenantName}/orchestrator_`;
+}
+
+async function fetchJson(url: string, headers: Record<string, string>) {
+  const response = await fetch(url, { headers });
+  const text = await response.text();
+  if (!response.ok) {
+    throw new Error(`UiPath request failed (${response.status}) for ${url}: ${text.slice(0, 300)}`);
+  }
+  return text ? JSON.parse(text) : null;
+}
+
+async function fetchUiPathFolderSnapshot(
+  auth: UiPathSolutionCliAuth,
+  folderId: string,
+): Promise<UiPathSolutionFolderSnapshot> {
+  const baseUrl = buildUiPathOrchestratorBaseUrl(auth);
+  const tokenHeaders = {
+    Authorization: `Bearer ${await import("./uipath-auth").then((m) => m.getAccessToken({
+      clientId: auth.applicationId,
+      clientSecret: auth.applicationSecret,
+      scopes: auth.applicationScope || "OR.Default",
+    }))}`,
+    "Content-Type": "application/json",
+    "X-UIPATH-OrganizationUnitId": folderId,
+  };
+
+  const [processes, assets, queues, buckets] = await Promise.all([
+    fetchJson(`${baseUrl}/odata/Releases?$top=200&$select=Name`, tokenHeaders),
+    fetchJson(`${baseUrl}/odata/Assets?$top=200&$select=Name`, tokenHeaders),
+    fetchJson(`${baseUrl}/odata/QueueDefinitions?$top=200&$select=Name`, tokenHeaders),
+    fetchJson(`${baseUrl}/odata/Buckets?$top=200&$select=Name`, tokenHeaders),
+  ]);
+
+  return {
+    processes: normalizeUiPathResourceNames((processes?.value || []).map((item: any) => item.Name)),
+    assets: normalizeUiPathResourceNames((assets?.value || []).map((item: any) => item.Name)),
+    queues: normalizeUiPathResourceNames((queues?.value || []).map((item: any) => item.Name)),
+    buckets: normalizeUiPathResourceNames((buckets?.value || []).map((item: any) => item.Name)),
+  };
+}
+
+export async function validateUiPathSolutionFolderResources(
+  auth: UiPathSolutionCliAuth,
+  options: UiPathSolutionFolderValidationOptions,
+): Promise<UiPathSolutionFolderValidationResult> {
+  const baseUrl = buildUiPathOrchestratorBaseUrl(auth);
+  const accessToken = await import("./uipath-auth").then((m) => m.getAccessToken({
+    clientId: auth.applicationId,
+    clientSecret: auth.applicationSecret,
+    scopes: auth.applicationScope || "OR.Default",
+  }));
+  const rootHeaders = {
+    Authorization: `Bearer ${accessToken}`,
+    "Content-Type": "application/json",
+  };
+
+  let folderId = options.folderId || "";
+  let folderName = options.folderName || "";
+
+  if (!folderId && !folderName) {
+    throw new Error("Solution folder validation requires folderId or folderName.");
+  }
+
+  if (!folderId) {
+    const folderPayload = await fetchJson(
+      `${baseUrl}/odata/Folders?$filter=DisplayName eq '${odataEscape(folderName)}'&$top=1`,
+      rootHeaders,
+    );
+    const match = folderPayload?.value?.[0];
+    if (!match?.Id) {
+      throw new Error(`UiPath solution folder "${folderName}" was not found.`);
+    }
+    folderId = String(match.Id);
+    folderName = match.DisplayName || folderName;
+  }
+
+  const actual = await fetchUiPathFolderSnapshot(auth, folderId);
+  const missing = diffUiPathSolutionFolderResources(actual, options);
+  const ok = Object.values(missing).every((values) => !values || values.length === 0);
+
+  return {
+    ok,
+    folderId,
+    folderName,
+    actual,
+    missing,
+  };
+}
+
 export function buildUiPathSolutionDeployArgs(
   auth: UiPathSolutionCliAuth,
   options: UiPathSolutionDeployOptions,

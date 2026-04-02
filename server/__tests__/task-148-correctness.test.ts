@@ -1,6 +1,10 @@
 import { describe, it, expect } from "vitest";
 import { generateInitAllSettingsXaml, makeUiPathCompliant, sanitizePropertyValue } from "../xaml-generator";
 import { runQualityGate, type QualityGateInput } from "../uipath-quality-gate";
+import {
+  buildDeterministicQueueItemInformationExpression,
+  buildDeterministicQueueReferenceExpression,
+} from "../package-assembler";
 import * as fs from "fs";
 import * as path from "path";
 
@@ -308,6 +312,33 @@ describe("Task 148 — UiPath Package Generator Correctness", () => {
       const malformed = result.violations.filter(v => v.check === "malformed-expression");
       expect(malformed.length).toBeGreaterThan(0);
       expect(malformed.some(v => v.severity === "error")).toBe(true);
+    });
+  });
+
+  describe("6. Deterministic queue handoff generation", () => {
+    it("builds a unique queue reference expression for deterministic intake dispatchers", () => {
+      const expression = buildDeterministicQueueReferenceExpression({
+        projectName: "POInvoiceTestNew",
+        domainLabel: "PO Invoice validation",
+        primaryEntityLabel: "Invoice",
+        queueName: "POInvoiceValidationQueue",
+      });
+
+      expect(expression).toContain("Guid.NewGuid().ToString(\"N\")");
+      expect(expression).toContain("POInvoiceTestNew");
+      expect(expression.startsWith("[")).toBe(true);
+      expect(expression.endsWith("]")).toBe(true);
+    });
+
+    it("builds queue payload item information with context json and workflow metadata", () => {
+      const expression = buildDeterministicQueueItemInformationExpression({
+        projectName: "POInvoiceTestNew",
+        domainLabel: "PO Invoice validation",
+        primaryEntityLabel: "Invoice",
+        queueName: "POInvoiceValidationQueue",
+      });
+
+      expect(expression).toBe("[New Dictionary(Of String, Object)]");
     });
   });
 });

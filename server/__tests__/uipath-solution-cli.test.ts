@@ -4,6 +4,7 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   buildUiPathSolutionDeployArgs,
+  diffUiPathSolutionFolderResources,
   DEFAULT_UIPATH_SOLUTION_SCOPES,
   buildUiPathSolutionAuthArgs,
   createLocalUiPathNugetConfig,
@@ -72,5 +73,24 @@ describe("UiPath solution CLI helpers", () => {
     expect(args).toContain("POInvoice Solutions");
     expect(args).toContain("--deploymentParentFolder");
     expect(args).toContain("CB2YY");
+  });
+
+  it("diffs deployed solution folder resources against expected names", () => {
+    const missing = diffUiPathSolutionFolderResources({
+      processes: ["POInvoiceTestNew"],
+      assets: ["POInvoice_ConfidenceThreshold", "POInvoice_TolerancePercent"],
+      queues: ["POInvoiceValidationQueue"],
+      buckets: ["po-invoice-evidence"],
+    }, {
+      processes: ["POInvoiceTestNew"],
+      assets: ["POInvoice_ConfidenceThreshold", "POInvoice_WebhookConnection"],
+      queues: ["POInvoiceValidationQueue"],
+      buckets: ["po-invoice-evidence"],
+    });
+
+    expect(missing.processes).toEqual([]);
+    expect(missing.queues).toEqual([]);
+    expect(missing.buckets).toEqual([]);
+    expect(missing.assets).toEqual(["POInvoice_WebhookConnection"]);
   });
 });
