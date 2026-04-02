@@ -3343,7 +3343,7 @@ export async function discoverIntegrationService(): Promise<IntegrationServiceDi
     }
 
     const activeConnections = connections.filter(c => c.status === "connected" || c.status === "active");
-    const activeConnectorKeys = [...new Set(activeConnections.map(c => c.connectorKey).filter(Boolean))];
+    const activeConnectorKeys = [...new Set(activeConnections.map(c => c.connectorKey).filter((key): key is string => Boolean(key)))];
 
     if (activeConnectorKeys.length > 0) {
       const METADATA_CONCURRENCY = 10;
@@ -3380,7 +3380,7 @@ export async function discoverIntegrationService(): Promise<IntegrationServiceDi
       (connectorRes.status === "fulfilled" && connectorRes.value.ok) ||
       (connectionRes.status === "fulfilled" && connectionRes.value.ok);
 
-    const connectorNames = [...new Set(activeConnections.map(c => c.connectorName).filter(Boolean))];
+    const connectorNames = [...new Set(activeConnections.map(c => c.connectorName).filter((name): name is string => Boolean(name)))];
 
     let summary = "";
     if (isAvailable) {

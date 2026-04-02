@@ -866,6 +866,13 @@ const FALLBACK_SCOPE_CATEGORIES: ScopeCategory[] = [
     { id: "OR.TestDataQueues.Read", description: "Read test data queues" },
     { id: "OR.TestDataQueues.Write", description: "Write test data queues" },
     { id: "OR.AutomationSolutions.Access", description: "Automation Solutions access" },
+    { id: "AutomationSolutions", description: "Native Solutions Management access" },
+    { id: "Solutions.Packages", description: "Full solution package access" },
+    { id: "Solutions.Packages.Read", description: "Read solution packages" },
+    { id: "Solutions.Packages.Write", description: "Write solution packages" },
+    { id: "Solutions.Deployments", description: "Full solution deployment access" },
+    { id: "Solutions.Deployments.Read", description: "Read solution deployments" },
+    { id: "Solutions.Deployments.Write", description: "Write solution deployments" },
     { id: "OR.Processes", description: "Full process access" },
   ]},
   { category: "Test Manager", service: "Test Manager", scopes: [

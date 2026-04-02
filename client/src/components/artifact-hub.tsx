@@ -38,6 +38,7 @@ interface ArtifactSummary {
     projectName?: string;
     workflowCount?: number;
     dependencyCount?: number;
+    solutionAvailable?: boolean;
   } | null;
 }
 
@@ -258,12 +259,28 @@ interface UiPathPackageData {
   description: string;
   dependencies?: string[];
   workflows?: UiPathWorkflow[];
-}
-
-interface ChatMessage {
-  id: number;
-  content: string;
-  role: string;
+  solution?: {
+    fileName?: string;
+    solutionName: string;
+    displayName: string;
+    version: string;
+    automationType: string;
+    componentCount: number;
+    components: Array<{ type: string; name: string; path: string; description?: string }>;
+    resources: {
+      queues: string[];
+      assets: string[];
+      storageBuckets: string[];
+      actionCatalogs: string[];
+      processes: string[];
+      integrations: string[];
+    };
+    deploymentSupport: {
+      packageDeploySupported: boolean;
+      solutionDeploySupported: string;
+      notes: string[];
+    };
+  } | null;
 }
 
 const MAX_DESC_LENGTH = 300;
@@ -304,12 +321,9 @@ function UiPathViewerModal({ open, onClose, ideaId }: { open: boolean; onClose: 
   const { data: packageData, isLoading, isError } = useQuery<UiPathPackageData>({
     queryKey: ["/api/ideas", ideaId, "artifacts-view", "uipath-meta"],
     queryFn: async () => {
-      const res = await fetch(`/api/ideas/${ideaId}/messages`, { credentials: "include" });
-      if (!res.ok) throw new Error("Failed to load messages");
-      const messages: ChatMessage[] = await res.json();
-      const uipathMsg = [...messages].reverse().find((m) => m.content.startsWith("[UIPATH:"));
-      if (!uipathMsg) throw new Error("No UiPath package found");
-      return JSON.parse(uipathMsg.content.slice(8, -1)) as UiPathPackageData;
+      const res = await fetch(`/api/ideas/${ideaId}/uipath-artifact-meta`, { credentials: "include" });
+      if (!res.ok) throw new Error("Failed to load UiPath artifact metadata");
+      return res.json();
     },
     enabled: open,
   });
@@ -328,7 +342,7 @@ function UiPathViewerModal({ open, onClose, ideaId }: { open: boolean; onClose: 
         <div className="flex items-center justify-between px-5 py-3 border-b border-border/50">
           <div className="flex items-center gap-2">
             <Package className="h-4 w-4 text-primary" />
-            <h3 className="text-sm font-semibold text-foreground">UiPath Automation Package</h3>
+            <h3 className="text-sm font-semibold text-foreground">UiPath Solution Output</h3>
           </div>
           <button onClick={onClose} className="p-1 rounded hover:bg-muted/50 text-muted-foreground hover:text-foreground transition-colors" data-testid="button-close-modal-uipath">
             <X className="h-4 w-4" />
@@ -363,6 +377,29 @@ function UiPathViewerModal({ open, onClose, ideaId }: { open: boolean; onClose: 
                   </div>
                 )}
               </div>
+
+              {packageData.solution && (
+                <div className="rounded-md border border-primary/20 bg-primary/5 p-3 space-y-2" data-testid="uipath-solution-summary">
+                  <div className="flex items-center justify-between gap-2">
+                    <div>
+                      <h5 className="text-[11px] font-semibold text-foreground">{packageData.solution.displayName}</h5>
+                      <p className="text-[10px] text-muted-foreground">
+                        {packageData.solution.componentCount} components · {packageData.solution.automationType} · v{packageData.solution.version}
+                      </p>
+                    </div>
+                    <Badge variant="outline" className="text-[9px]">Native .uis</Badge>
+                  </div>
+                  <div className="text-[10px] text-muted-foreground space-y-1">
+                    <p>Use Studio Web or UiPath CLI to deploy the solution. The underlying package is included inside the bundle.</p>
+                    {packageData.solution.resources.queues.length > 0 && (
+                      <p>Queues: {packageData.solution.resources.queues.join(", ")}</p>
+                    )}
+                    {packageData.solution.resources.assets.length > 0 && (
+                      <p>Assets: {packageData.solution.resources.assets.join(", ")}</p>
+                    )}
+                  </div>
+                </div>
+              )}
 
               {packageData.dependencies && packageData.dependencies.length > 0 && (
                 <div>
@@ -496,16 +533,16 @@ export function ArtifactHub({ ideaId, ideaTitle }: ArtifactHubProps) {
   async function downloadArtifact(type: string) {
     try {
       if (type === "uipath") {
-        const res = await fetch(`/api/ideas/${ideaId}/download-uipath`, { credentials: "include" });
+        const res = await fetch(`/api/ideas/${ideaId}/download-uipath?format=solution`, { credentials: "include" });
         if (!res.ok) {
           const errBody = await res.json().catch(() => null);
-          throw new Error(errBody?.message || "Failed to download UiPath package");
+          throw new Error(errBody?.message || "Failed to download UiPath native solution export");
         }
         const blob = await res.blob();
         const url = URL.createObjectURL(blob);
         const a = document.createElement("a");
         a.href = url;
-        a.download = `${ideaTitle.replace(/[^a-zA-Z0-9_-]/g, "_")}.zip`;
+        a.download = `${ideaTitle.replace(/[^a-zA-Z0-9_-]/g, "_")}_solution.zip`;
         document.body.appendChild(a);
         a.click();
         document.body.removeChild(a);
@@ -566,19 +603,19 @@ export function ArtifactHub({ ideaId, ideaTitle }: ArtifactHubProps) {
       if (hasUipath) {
         await new Promise(resolve => setTimeout(resolve, 500));
         try {
-          const res = await fetch(`/api/ideas/${ideaId}/download-uipath`, { credentials: "include" });
-          if (!res.ok) throw new Error("UiPath download failed");
+          const res = await fetch(`/api/ideas/${ideaId}/download-uipath?format=solution`, { credentials: "include" });
+          if (!res.ok) throw new Error("UiPath solution download failed");
           const blob = await res.blob();
           const url = URL.createObjectURL(blob);
           const a = document.createElement("a");
           a.href = url;
-          a.download = `${ideaTitle.replace(/[^a-zA-Z0-9_-]/g, "_")}.zip`;
+          a.download = `${ideaTitle.replace(/[^a-zA-Z0-9_-]/g, "_")}_solution.zip`;
           document.body.appendChild(a);
           a.click();
           document.body.removeChild(a);
           URL.revokeObjectURL(url);
         } catch {
-          toast({ title: "UiPath download failed", variant: "destructive" });
+          toast({ title: "UiPath solution download failed", variant: "destructive" });
         }
       }
 
@@ -680,7 +717,7 @@ export function ArtifactHub({ ideaId, ideaTitle }: ArtifactHubProps) {
                         <span>{artifact.version ? " · " : ""}{artifact.nodeCount} steps</span>
                       )}
                       {artifact.meta?.projectName && (
-                        <span>{artifact.meta.projectName} · {artifact.meta.workflowCount} workflows</span>
+                        <span>{artifact.meta.projectName} · {artifact.meta.workflowCount} workflows{artifact.meta.solutionAvailable ? " · solution ready" : ""}</span>
                       )}
                       {!artifact.exists && <span>Not yet generated</span>}
                     </div>

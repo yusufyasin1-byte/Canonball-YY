@@ -11,7 +11,7 @@ function makeProjectJson(name: string, deps: Record<string, string>): string {
     description: `${name} automation`,
     main: "Main.xaml",
     dependencies: deps,
-    designOptions: { projectProfile: "Development", outputType: "Process" },
+    designOptions: { projectProfile: "Developement", outputType: "Process" },
     expressionLanguage: "VisualBasic",
     schemaVersion: "4.0",
     studioVersion: "25.10.7",
@@ -55,12 +55,11 @@ describe("Task 148 — UiPath Package Generator Correctness", () => {
       expect(metaVersion).toBe("1.21.0");
     });
 
-    it("test fixtures use 'Development' (not 'Developement' typo)", () => {
+    it("test fixtures use UiPath-native 'Developement' project profile spelling", () => {
       const fixtureContent = fs.readFileSync(
         path.resolve(__dirname, "./fixtures/process-specs.ts"), "utf-8"
       );
-      expect(fixtureContent).not.toContain("Developement");
-      expect(fixtureContent).toContain("Development");
+      expect(fixtureContent).toContain("Developement");
     });
   });
 

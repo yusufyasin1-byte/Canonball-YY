@@ -707,11 +707,14 @@ export function registerDocumentRoutes(app: Express): void {
         },
         {
           type: "uipath" as const,
-          label: "UiPath Package",
+          label: "UiPath Solution Export (.uis)",
           exists: !!uipathMsg,
           status: uipathMsg ? "Generated" : "Not Generated",
           version: null,
-          meta: uipathData,
+          meta: uipathData ? {
+            ...uipathData,
+            solutionAvailable: !!getCachedPipelineResult(ideaId)?.solutionArtifact,
+          } : null,
         },
         {
           type: "dhg" as const,
@@ -726,6 +729,50 @@ export function registerDocumentRoutes(app: Express): void {
     } catch (error) {
       console.error("Error fetching artifacts summary:", error);
       return res.status(500).json({ message: "Failed to fetch artifacts" });
+    }
+  });
+
+  app.get("/api/ideas/:ideaId/uipath-artifact-meta", async (req: Request, res: Response) => {
+    const ideaId = await verifyIdeaAccess(req, res);
+    if (!ideaId) return;
+
+    try {
+      const messages = await chatStorage.getMessagesByIdeaId(ideaId);
+      const uipathMsg = findUiPathMessage(messages);
+      if (!uipathMsg) {
+        return res.status(404).json({ message: "No UiPath artifacts found" });
+      }
+
+      let pkg: UiPathPackage;
+      try {
+        pkg = parseUiPathPackage(uipathMsg);
+      } catch {
+        return res.status(500).json({ message: "Invalid UiPath package data" });
+      }
+
+      const pipelineResult = getCachedPipelineResult(ideaId);
+      const solutionManifest = pipelineResult?.solutionArtifact?.manifest;
+
+      return res.json({
+        projectName: pkg.projectName || "UiPathPackage",
+        description: pkg.description || "",
+        dependencies: pkg.dependencies || [],
+        workflows: pkg.workflows || [],
+        solution: solutionManifest ? {
+          fileName: pipelineResult?.solutionArtifact?.fileName,
+          solutionName: solutionManifest.solutionName,
+          displayName: solutionManifest.displayName,
+          version: solutionManifest.version,
+          automationType: solutionManifest.automationType,
+          componentCount: solutionManifest.components.length,
+          components: solutionManifest.components,
+          resources: solutionManifest.resources,
+          deploymentSupport: solutionManifest.deploymentSupport,
+        } : null,
+      });
+    } catch (error) {
+      console.error("Error fetching UiPath artifact metadata:", error);
+      return res.status(500).json({ message: "Failed to fetch UiPath artifact metadata" });
     }
   });
 
@@ -1181,7 +1228,7 @@ export function registerDocumentRoutes(app: Express): void {
         if (!pipelineResult.solutionArtifact?.buffer || pipelineResult.solutionArtifact.buffer.length === 0) {
           return res.status(500).json({
             error: "SOLUTION_BUNDLE_EMPTY",
-            message: "Solution bundle is unavailable for this build. Please regenerate the artifacts.",
+            message: "Native UiPath solution export is unavailable for this build. Please regenerate the artifacts.",
           });
         }
 
@@ -1268,7 +1315,7 @@ export function registerDocumentRoutes(app: Express): void {
                   mustRestoreAllDependencies: true,
                 },
                 designOptions: {
-                  projectProfile: "Development",
+                  projectProfile: "Developement",
                   outputType: "Process",
                   libraryOptions: { includeOriginalXaml: false, privateWorkflows: [] },
                   processOptions: { ignoredFiles: [] },
@@ -2021,11 +2068,17 @@ function extractToolDefinitions(sddContent: string, pkg: UiPathPackage): any[] {
         action: "AUTHORIZE",
       });
     } else if (typeof tool === "object") {
+      const typedTool = tool as {
+        name?: string;
+        description?: string;
+        inputSchema?: Record<string, unknown>;
+        outputSchema?: Record<string, unknown>;
+      };
       tools.push({
-        name: tool.name || "unknown_tool",
-        description: tool.description || "",
-        input_schema: tool.inputSchema || { type: "object", properties: {} },
-        output_schema: tool.outputSchema || { type: "object", properties: {} },
+        name: typedTool.name || "unknown_tool",
+        description: typedTool.description || "",
+        input_schema: typedTool.inputSchema || { type: "object", properties: {} },
+        output_schema: typedTool.outputSchema || { type: "object", properties: {} },
         action: "AUTHORIZE",
       });
     }

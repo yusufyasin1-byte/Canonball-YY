@@ -6,6 +6,8 @@ export interface UiPathSolutionComponent {
   packageFile?: string;
 }
 
+export type UiPathNativeSolutionProjectType = "Process" | "Agent" | "App" | "ApiWorkflow";
+
 export interface UiPathSolutionResourceSummary {
   queues: string[];
   assets: string[];
@@ -23,7 +25,7 @@ export interface UiPathSolutionManifest {
   generatedAt: string;
   sourceProjectName: string;
   automationType: "rpa" | "agent" | "hybrid";
-  deliveryMode: "solution_bundle";
+  deliveryMode: "solution_bundle" | "native_uis";
   deploymentSupport: {
     packageDeploySupported: boolean;
     solutionDeploySupported: "manual_or_cli";

@@ -399,22 +399,10 @@ const FALLBACK_REGISTRY: Record<string, ActivityRegistryEntry> = {
       optional: ["DisplayName"],
     },
   },
-  "Assign": {
-    package: "",
-    properties: {
-      optional: ["To", "Value"],
-    },
-  },
   "ui:Assign": {
     package: "",
     properties: {
       optional: ["To", "Value"],
-    },
-  },
-  "Throw": {
-    package: "",
-    properties: {
-      optional: ["Exception"],
     },
   },
   "ui:Throw": {

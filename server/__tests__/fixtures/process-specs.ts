@@ -124,7 +124,7 @@ export function makeProjectJson(
     toolVersion: "25.10.0",
     projectType: "Workflow",
     libraryOptions: { includeOriginalXaml: false, packageId: projectName, version: "1.0.0" },
-    designOptions: { projectProfile: "Development", outputType: "Process", modernBehavior },
+    designOptions: { projectProfile: "Developement", outputType: "Process", modernBehavior },
     expressionLanguage: targetFramework === "Portable" ? "CSharp" : "VisualBasic",
     entryPoints: [{ filePath: "Main.xaml", uniqueId: "00000000-0000-0000-0000-000000000001", input: [], output: [] }],
     schemaVersion: "4.0",

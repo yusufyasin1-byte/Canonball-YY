@@ -991,7 +991,7 @@ export function registerChatRoutes(app: Express): void {
         }
       }, 2000);
 
-      let classifiedIntent: "PDD" | "SDD" | "PDD_SDD" | "DEPLOY" | "UIPATH_GEN" | "DHG" | "CHAT" = "CHAT";
+      let classifiedIntent: string = "CHAT";
 
       try { res.write(`data: ${JSON.stringify({ liveStatus: "Classifying your request..." })}\n\n`); } catch {}
 
@@ -1045,7 +1045,7 @@ CRITICAL RULES:
         "DHG": PIPELINE_STAGES.indexOf("Build"),
       };
       if (classifiedIntent !== "CHAT" && STAGE_REQUIREMENTS[classifiedIntent] !== undefined) {
-        const requiredIdx = STAGE_REQUIREMENTS[classifiedIntent];
+        const requiredIdx = STAGE_REQUIREMENTS[classifiedIntent as keyof typeof STAGE_REQUIREMENTS];
         if (stageIdx < requiredIdx) {
           console.log(`[Chat] Downgrading intent ${classifiedIntent} → CHAT (current stage "${idea.stage}" is earlier than required stage "${PIPELINE_STAGES[requiredIdx]}")`);
           classifiedIntent = "CHAT";
@@ -1411,7 +1411,7 @@ CRITICAL RULES:
       let docProgressDocType: "PDD" | "SDD" | null = null;
       let docProgressStarted = false;
 
-      for await (const event of stream) {
+      for await (const event of stream as unknown as AsyncIterable<(typeof stream extends AsyncIterable<infer T> ? T : never)>) {
         if (clientDisconnected) {
           console.log(`[Chat] Client disconnected — aborting stream for idea ${ideaId}`);
           stream.abort();
@@ -1672,7 +1672,7 @@ CRITICAL RULES:
           let finalEvent: any = null;
 
           if (deployRes.headers.get("content-type")?.includes("text/event-stream") && deployRes.body) {
-            const reader = deployRes.body as AsyncIterable<Uint8Array>;
+            const reader = deployRes.body as unknown as AsyncIterable<Uint8Array>;
             const decoder = new TextDecoder();
             let sseBuffer = "";
 

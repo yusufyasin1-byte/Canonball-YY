@@ -2,6 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import mammoth from "mammoth";
 import { buildNuGetPackage } from "../server/package-assembler";
+import { buildUiPathSolutionArtifact } from "../server/uipath-solution-builder";
 import type { UiPathPackage } from "../server/types/uipath-package";
 import { selectGenerationMode } from "../server/xaml-generator";
 import { catalogService } from "../server/catalog/catalog-service";
@@ -161,6 +162,23 @@ async function main() {
   };
 
   const result = await buildNuGetPackage(pkg, "1.0.0-sim", "po-invoice-sim-local", selectedMode.mode);
+  const solutionArtifact = buildUiPathSolutionArtifact({
+    pkg,
+    buildResult: result,
+    packageBuffer: result.buffer,
+    projectName: pkg.projectName,
+    dhgContent: "# Developer Handoff Guide\n\nGenerated for the PO invoice simulation use case.",
+    ctx: {
+      idea: { title: "PO Invoice Test New" } as any,
+      sdd: { content: sddContent } as any,
+      pdd: {
+        content: "PO invoice validation for Coupa-submitted invoices against purchase orders with tolerance and approval routing.",
+      } as any,
+      mapNodes: buildPoInvoiceNodes() as any,
+      processEdges: buildPoInvoiceEdges() as any,
+    },
+    version: "1.0.0-sim",
+  });
 
   const summary = {
     selectedMode: selectedMode.mode,
@@ -175,6 +193,9 @@ async function main() {
     qualityGatePassed: result.qualityGateResult?.passed ?? null,
     qualityViolationCount: result.qualityGateResult?.violations?.length ?? 0,
     topViolations: (result.qualityGateResult?.violations ?? []).slice(0, 25),
+    solutionFileName: solutionArtifact.fileName,
+    solutionComponentCount: solutionArtifact.components.length,
+    solutionResources: solutionArtifact.manifest.resources,
   };
 
   fs.writeFileSync(path.join(outputDir, "summary.json"), JSON.stringify(summary, null, 2), "utf8");
@@ -187,6 +208,8 @@ async function main() {
   }
   fs.writeFileSync(path.join(outputDir, "archive-manifest.txt"), result.archiveManifest.join("\n"), "utf8");
   fs.writeFileSync(path.join(outputDir, "dependency-map.json"), JSON.stringify(result.dependencyMap, null, 2), "utf8");
+  fs.writeFileSync(path.join(outputDir, "solution-manifest.json"), JSON.stringify(solutionArtifact.manifest, null, 2), "utf8");
+  fs.writeFileSync(path.join(outputDir, solutionArtifact.fileName), solutionArtifact.buffer);
   if (result.qualityGateResult) {
     fs.writeFileSync(path.join(outputDir, "quality-gate.json"), JSON.stringify(result.qualityGateResult, null, 2), "utf8");
   }

@@ -3,6 +3,22 @@ import { assembleNode, assembleWorkflowFromSpec, resolveActivityTemplate, lintAn
 import { validateWorkflowSpec, type WorkflowNode, type WorkflowSpec, type ActivityNode, type VariableDeclaration } from "../workflow-spec-types";
 import { makeUiPathCompliant } from "../xaml-generator";
 
+function wrapFragmentInMinimalXaml(fragment: string): string {
+  return `<?xml version="1.0" encoding="utf-8"?>
+<Activity mc:Ignorable="sap sap2010" x:Class="Test"
+  xmlns="http://schemas.microsoft.com/netfx/2009/xaml/activities"
+  xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+  xmlns:s="clr-namespace:System;assembly=mscorlib"
+  xmlns:sap="http://schemas.microsoft.com/netfx/2009/xaml/activities/presentation"
+  xmlns:sap2010="http://schemas.microsoft.com/netfx/2010/xaml/activities/presentation"
+  xmlns:ui="http://schemas.uipath.com/workflow/activities"
+  xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+  <Sequence DisplayName="Test">
+    ${fragment}
+  </Sequence>
+</Activity>`;
+}
+
 describe("Workflow Tree Architecture", () => {
   describe("WorkflowSpec Zod Validation", () => {
     it("validates a minimal valid WorkflowSpec", () => {
@@ -329,7 +345,7 @@ describe("Workflow Tree Architecture", () => {
       const xml = assembleNode(node);
       expect(xml).toContain("<TryCatch");
       expect(xml).toContain("<TryCatch.Try>");
-      expect(xml).toContain("<ui:HttpClient");
+      expect(xml).toContain("<uweb:HttpClient");
       expect(xml).toContain("<TryCatch.Catches>");
     });
 
@@ -343,7 +359,7 @@ describe("Workflow Tree Architecture", () => {
       };
       const xml = assembleNode(node);
       expect(xml).toContain("<ui:RetryScope");
-      expect(xml).toContain("<ui:HttpClient");
+      expect(xml).toContain("<uweb:HttpClient");
       expect(xml).toContain("<ui:ShouldRetry");
     });
   });
@@ -767,7 +783,7 @@ describe("Workflow Tree Architecture", () => {
       const tryCatchTryEnd = xaml.indexOf("</TryCatch.Try>");
       const tryBlock = xaml.substring(tryCatchTryStart, tryCatchTryEnd);
 
-      expect(tryBlock).toContain("<ui:HttpClient");
+      expect(tryBlock).toContain("<uweb:HttpClient");
       expect(tryBlock).toContain("<If");
 
       const ifThenStart = tryBlock.indexOf("<If.Then>");
@@ -920,14 +936,14 @@ describe("Workflow Tree Architecture", () => {
 
   describe("Doubled Argument Normalization (parser fallback)", () => {
     it("collapses single-line doubled OutArgument via makeUiPathCompliant", () => {
-      const input = `<Assign.To><OutArgument x:TypeArguments="x:String"><OutArgument x:TypeArguments="x:String">[myVar]</OutArgument></OutArgument></Assign.To>`;
+      const input = wrapFragmentInMinimalXaml(`<Assign.To><OutArgument x:TypeArguments="x:String"><OutArgument x:TypeArguments="x:String">[myVar]</OutArgument></OutArgument></Assign.To>`);
       const result = makeUiPathCompliant(input);
       expect(result).not.toContain("<OutArgument x:TypeArguments=\"x:String\"><OutArgument");
       expect(result).toContain("[myVar]</OutArgument>");
     });
 
     it("collapses multiline doubled InArgument via makeUiPathCompliant", () => {
-      const input = `<InArgument x:TypeArguments="x:String">\n  <InArgument x:TypeArguments="x:String">[inputVal]</InArgument>\n</InArgument>`;
+      const input = wrapFragmentInMinimalXaml(`<InArgument x:TypeArguments="x:String">\n  <InArgument x:TypeArguments="x:String">[inputVal]</InArgument>\n</InArgument>`);
       const result = makeUiPathCompliant(input);
       const inArgCount = (result.match(/<InArgument/g) || []).length;
       const closeCount = (result.match(/<\/InArgument>/g) || []).length;
@@ -937,7 +953,7 @@ describe("Workflow Tree Architecture", () => {
     });
 
     it("collapses doubled OutArgument with mixed attributes across lines", () => {
-      const input = `<OutArgument>\n    <OutArgument x:TypeArguments="x:Int32">[count]</OutArgument>\n  </OutArgument>`;
+      const input = wrapFragmentInMinimalXaml(`<OutArgument>\n    <OutArgument x:TypeArguments="x:Int32">[count]</OutArgument>\n  </OutArgument>`);
       const result = makeUiPathCompliant(input);
       expect(result).toContain("x:TypeArguments");
       expect(result).toContain("[count]");

@@ -138,7 +138,7 @@ export async function startUiPathGenerationRun(
       ideaId,
       runId,
       status: "running",
-      generationMode: options?.generationMode || null,
+      generationMode: options?.generationMode || undefined,
       triggeredBy: triggerSource,
       currentPhase: "initializing",
       phaseProgress: null,
@@ -604,7 +604,7 @@ async function executeRun(
     });
     await runLogger.flush();
 
-    await failRunInternal(runId, activeRun, phaseEvents, errorMessage, failOutcome, isBlocked ? "blocked" : "failed");
+    await failRunInternal(runId, activeRun, phaseEvents, errorMessage, failOutcome as unknown as Record<string, unknown>, isBlocked ? "blocked" : "failed");
   } finally {
     stopHeartbeat();
   }

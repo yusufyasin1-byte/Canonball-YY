@@ -1,4 +1,5 @@
 import type { Express, Request, Response } from "express";
+import type { ParsedQs } from "qs";
 import { getUiPathConfig, getAccessToken, saveUiPathConfig, testUiPathConnection, pushToUiPath, getLastTestedAt, fetchUiPathFolders, saveUiPathFolder, createProcess, listMachines, listRobots, listProcesses, startJob, getJobStatus, verifyUiPathScopes, probeUiPathScopes, autoDetectUiPathScopes, clearProbeCache, discoverIntegrationService, clearIntegrationServiceCache, discoverGovernancePolicies, discoverAttendedRobots, discoverStudioProjects, QualityGateError } from "./uipath-integration";
 import { parseArtifactsFromSDD, extractArtifactsWithLLM, deployAllArtifacts, formatDeploymentReport } from "./uipath-deploy";
 import { getPreviousManifest, reconcileArtifacts, saveManifest, formatReconciliationSummary } from "./artifact-reconciliation";
@@ -79,6 +80,40 @@ function requireAdmin(req: Request, res: Response): boolean {
     return false;
   }
   return true;
+}
+
+type ParamLike = string | string[] | undefined;
+type QueryLike = string | ParsedQs | (string | ParsedQs)[] | undefined;
+
+function firstString(value: ParamLike): string | undefined {
+  if (Array.isArray(value)) return value[0];
+  return value;
+}
+
+function firstQueryString(value: QueryLike): string | undefined {
+  if (Array.isArray(value)) {
+    const first = value[0];
+    return typeof first === "string" ? first : undefined;
+  }
+  return typeof value === "string" ? value : undefined;
+}
+
+function requiredParam(value: ParamLike, name: string): string {
+  const normalized = firstString(value)?.trim();
+  if (!normalized) {
+    throw new Error(`Missing route parameter: ${name}`);
+  }
+  return normalized;
+}
+
+function optionalQuery(value: QueryLike): string | undefined {
+  const normalized = firstQueryString(value)?.trim();
+  return normalized ? normalized : undefined;
+}
+
+function parseIntegerParam(value: ParamLike): number {
+  const normalized = firstString(value);
+  return Number.parseInt(normalized ?? "", 10);
 }
 
 export function registerUiPathRoutes(app: Express): void {
@@ -229,7 +264,7 @@ export function registerUiPathRoutes(app: Express): void {
   app.patch("/api/settings/uipath/connections/:id", async (req: Request, res: Response) => {
     if (!requireAdmin(req, res)) return;
     try {
-      const id = parseInt(req.params.id);
+      const id = parseIntegerParam(req.params.id);
       if (isNaN(id)) return res.status(400).json({ message: "Invalid ID" });
       const existing = await db.select().from(uipathConnections).where(eq(uipathConnections.id, id));
       if (existing.length === 0) return res.status(404).json({ message: "Connection not found" });
@@ -260,7 +295,7 @@ export function registerUiPathRoutes(app: Express): void {
   app.delete("/api/settings/uipath/connections/:id", async (req: Request, res: Response) => {
     if (!requireAdmin(req, res)) return;
     try {
-      const id = parseInt(req.params.id);
+      const id = parseIntegerParam(req.params.id);
       if (isNaN(id)) return res.status(400).json({ message: "Invalid ID" });
       const existing = await db.select().from(uipathConnections).where(eq(uipathConnections.id, id));
       if (existing.length === 0) return res.status(404).json({ message: "Connection not found" });
@@ -275,7 +310,7 @@ export function registerUiPathRoutes(app: Express): void {
   app.post("/api/settings/uipath/connections/:id/activate", async (req: Request, res: Response) => {
     if (!requireAdmin(req, res)) return;
     try {
-      const id = parseInt(req.params.id);
+      const id = parseIntegerParam(req.params.id);
       if (isNaN(id)) return res.status(400).json({ message: "Invalid ID" });
       const existing = await db.select().from(uipathConnections).where(eq(uipathConnections.id, id));
       if (existing.length === 0) return res.status(404).json({ message: "Connection not found" });
@@ -293,7 +328,7 @@ export function registerUiPathRoutes(app: Express): void {
   app.post("/api/settings/uipath/connections/:id/test", async (req: Request, res: Response) => {
     if (!requireAdmin(req, res)) return;
     try {
-      const id = parseInt(req.params.id);
+      const id = parseIntegerParam(req.params.id);
       if (isNaN(id)) return res.status(400).json({ message: "Invalid ID" });
       const rows = await db.select().from(uipathConnections).where(eq(uipathConnections.id, id));
       if (rows.length === 0) return res.status(404).json({ message: "Connection not found" });
@@ -463,7 +498,7 @@ export function registerUiPathRoutes(app: Express): void {
     if (!req.session.userId) {
       return res.status(401).json({ message: "Not authenticated" });
     }
-    const ideaId = req.params.ideaId as string;
+    const ideaId = requiredParam(req.params.ideaId, "ideaId");
     const idea = await storage.getIdea(ideaId);
     if (!idea) return res.status(404).json({ message: "Idea not found" });
 
@@ -487,7 +522,7 @@ export function registerUiPathRoutes(app: Express): void {
     if (!req.session.userId) {
       return res.status(401).json({ message: "Not authenticated" });
     }
-    const ideaId = req.params.ideaId as string;
+    const ideaId = requiredParam(req.params.ideaId, "ideaId");
     const idea = await storage.getIdea(ideaId);
     if (!idea) return res.status(404).json({ message: "Idea not found" });
 
@@ -522,7 +557,7 @@ export function registerUiPathRoutes(app: Express): void {
     if (!req.session.userId) {
       return res.status(401).json({ message: "Not authenticated" });
     }
-    const jobId = parseInt(req.params.jobId as string, 10);
+    const jobId = parseIntegerParam(req.params.jobId);
     if (isNaN(jobId)) return res.status(400).json({ message: "Invalid job ID" });
 
     const result = await getJobStatus(jobId);
@@ -534,7 +569,7 @@ export function registerUiPathRoutes(app: Express): void {
       return res.status(401).json({ message: "Not authenticated" });
     }
 
-    const ideaId = req.params.ideaId as string;
+    const ideaId = requiredParam(req.params.ideaId, "ideaId");
     const idea = await storage.getIdea(ideaId);
     if (!idea) {
       return res.status(404).json({ message: "Idea not found" });
@@ -596,18 +631,19 @@ export function registerUiPathRoutes(app: Express): void {
       const cachedPipeline = getCachedPipelineResult(ideaId);
       if (cachedPipeline) {
         console.log(`[UiPath Deploy] Using cached pipeline result for ${ideaId}`);
-        prebuiltResult = {
-          buffer: cachedPipeline.packageBuffer,
-          gaps: cachedPipeline.gaps,
-          usedPackages: cachedPipeline.usedPackages,
-          qualityGateResult: cachedPipeline.qualityGateResult,
+          prebuiltResult = {
+            buffer: cachedPipeline.packageBuffer,
+            gaps: cachedPipeline.gaps,
+            usedPackages: cachedPipeline.usedPackages,
+            qualityGateResult: cachedPipeline.qualityGateResult,
           xamlEntries: cachedPipeline.xamlEntries,
           dependencyMap: cachedPipeline.dependencyMap,
           archiveManifest: cachedPipeline.archiveManifest,
-          usedFallbackStubs: cachedPipeline.usedFallbackStubs,
-          generationMode: cachedPipeline.generationMode,
-          referencedMLSkillNames: cachedPipeline.referencedMLSkillNames || [],
-        };
+            usedFallbackStubs: cachedPipeline.usedFallbackStubs,
+            generationMode: cachedPipeline.generationMode,
+            referencedMLSkillNames: cachedPipeline.referencedMLSkillNames || [],
+            usedAIFallback: cachedPipeline.usedAIFallback,
+          };
       } else {
         try {
           const pipelineResult = await runBuildPipeline(ideaId, pkg, {
@@ -627,6 +663,7 @@ export function registerUiPathRoutes(app: Express): void {
             usedFallbackStubs: pipelineResult.usedFallbackStubs,
             generationMode: pipelineResult.generationMode,
             referencedMLSkillNames: pipelineResult.referencedMLSkillNames || [],
+            usedAIFallback: pipelineResult.usedAIFallback,
           };
         } catch (err: any) {
           if (err instanceof QualityGateError) {
@@ -801,7 +838,7 @@ export function registerUiPathRoutes(app: Express): void {
               deploymentResults: deployResult.results,
               deploymentSummary: deployResult.summary + (reconSummaryText ? "\n\n" + reconSummaryText : ""),
               reconciliationActions: reconciliationActions.length > 0 ? reconciliationActions : undefined,
-              serviceLimitations: deployResult.serviceLimitations,
+              serviceLimitations: deployResult.serviceLimitations ?? undefined,
             };
           }
         }
@@ -825,7 +862,7 @@ export function registerUiPathRoutes(app: Express): void {
         folderName: result.details?.folderName,
         results: deployResults,
         summary: result.details?.deploymentSummary || "",
-        serviceLimitations: result.details?.serviceLimitations,
+        serviceLimitations: result.details?.serviceLimitations ?? undefined,
       } : null;
 
       let storePublishLine = "";
@@ -1701,7 +1738,7 @@ export function registerUiPathRoutes(app: Express): void {
     if (!req.session.userId) {
       return res.status(401).json({ message: "Not authenticated" });
     }
-    const { processName } = req.params;
+    const processName = requiredParam(req.params.processName, "processName");
     try {
       const logs = await db
         .select()
@@ -1731,7 +1768,7 @@ export function registerUiPathRoutes(app: Express): void {
     if (!req.session.userId) {
       return res.status(401).json({ message: "Not authenticated" });
     }
-    const { processName } = req.params;
+    const processName = requiredParam(req.params.processName, "processName");
     try {
       const jobs = await orch.getJobs(processName, "Running");
       const stopped: number[] = [];
@@ -1963,7 +2000,7 @@ export function registerUiPathRoutes(app: Express): void {
     if (!req.session.userId) {
       return res.status(401).json({ message: "Not authenticated" });
     }
-    const taskId = parseInt(req.params.taskId, 10);
+    const taskId = parseIntegerParam(req.params.taskId);
     if (isNaN(taskId)) return res.status(400).json({ message: "Invalid task ID" });
 
     const { action, data, resolvedBy } = req.body;
@@ -2029,7 +2066,7 @@ export function registerUiPathRoutes(app: Express): void {
     if (!req.session.userId) {
       return res.status(401).json({ message: "Not authenticated" });
     }
-    const { jobId } = req.params;
+    const jobId = requiredParam(req.params.jobId, "jobId");
     try {
       const results = await db
         .select()
@@ -2131,9 +2168,9 @@ export function registerUiPathRoutes(app: Express): void {
       return res.status(401).json({ message: "Not authenticated" });
     }
     try {
-      const limit = parseInt(req.query.limit as string) || 50;
-      const offset = parseInt(req.query.offset as string) || 0;
-      const status = req.query.status as string | undefined;
+      const limit = Number.parseInt(optionalQuery(req.query.limit) ?? "", 10) || 50;
+      const offset = Number.parseInt(optionalQuery(req.query.offset) ?? "", 10) || 0;
+      const status = optionalQuery(req.query.status);
       const { listAutomationHubIdeas } = await import("./automation-hub");
       const result = await listAutomationHubIdeas(limit, offset, status);
       return res.json(result);
@@ -2147,7 +2184,7 @@ export function registerUiPathRoutes(app: Express): void {
       return res.status(401).json({ message: "Not authenticated" });
     }
     try {
-      const hubIdeaId = parseInt(req.params.hubIdeaId);
+      const hubIdeaId = parseIntegerParam(req.params.hubIdeaId);
       if (isNaN(hubIdeaId)) {
         return res.status(400).json({ message: "Invalid Automation Hub idea ID" });
       }
@@ -2164,7 +2201,7 @@ export function registerUiPathRoutes(app: Express): void {
       return res.status(401).json({ message: "Not authenticated" });
     }
     try {
-      const hubIdeaId = parseInt(req.params.hubIdeaId);
+      const hubIdeaId = parseIntegerParam(req.params.hubIdeaId);
       if (isNaN(hubIdeaId)) {
         return res.status(400).json({ message: "Invalid Automation Hub idea ID" });
       }
@@ -2223,7 +2260,7 @@ export function registerUiPathRoutes(app: Express): void {
     if (!req.session.userId) {
       return res.status(401).json({ message: "Not authenticated" });
     }
-    const ideaId = req.params.ideaId;
+    const ideaId = requiredParam(req.params.ideaId, "ideaId");
     const idea = await storage.getIdea(ideaId);
     if (!idea) return res.status(404).json({ message: "Idea not found" });
     const user = await storage.getUser(req.session.userId);
@@ -2307,7 +2344,7 @@ export function registerUiPathRoutes(app: Express): void {
     if (!req.session.userId) {
       return res.status(401).json({ message: "Not authenticated" });
     }
-    const ideaId = req.params.ideaId;
+    const ideaId = requiredParam(req.params.ideaId, "ideaId");
     const idea = await storage.getIdea(ideaId);
     if (!idea) return res.status(404).json({ message: "Idea not found" });
     const user = await storage.getUser(req.session.userId);
@@ -2392,7 +2429,8 @@ export function registerUiPathRoutes(app: Express): void {
     if (!req.session.userId) {
       return res.status(401).json({ message: "Not authenticated" });
     }
-    const { ideaId, runId } = req.params;
+    const ideaId = requiredParam(req.params.ideaId, "ideaId");
+    const runId = requiredParam(req.params.runId, "runId");
     const idea = await storage.getIdea(ideaId);
     if (!idea) return res.status(404).json({ message: "Idea not found" });
     const user = await storage.getUser(req.session.userId);
@@ -2433,7 +2471,8 @@ export function registerUiPathRoutes(app: Express): void {
     if (!req.session.userId) {
       return res.status(401).json({ message: "Not authenticated" });
     }
-    const { ideaId, runId } = req.params;
+    const ideaId = requiredParam(req.params.ideaId, "ideaId");
+    const runId = requiredParam(req.params.runId, "runId");
     const idea = await storage.getIdea(ideaId);
     if (!idea) return res.status(404).json({ message: "Idea not found" });
     const user = await storage.getUser(req.session.userId);
@@ -2443,7 +2482,7 @@ export function registerUiPathRoutes(app: Express): void {
       return res.status(403).json({ message: "Access denied" });
     }
 
-    const afterIndex = parseInt(req.query.afterIndex as string) || 0;
+    const afterIndex = Number.parseInt(optionalQuery(req.query.afterIndex) ?? "", 10) || 0;
     const result = getObserverRunEvents(runId, afterIndex);
 
     if (!result) {
@@ -2474,7 +2513,8 @@ export function registerUiPathRoutes(app: Express): void {
     if (!req.session.userId) {
       return res.status(401).json({ message: "Not authenticated" });
     }
-    const { ideaId, runId } = req.params;
+    const ideaId = requiredParam(req.params.ideaId, "ideaId");
+    const runId = requiredParam(req.params.runId, "runId");
     const idea = await storage.getIdea(ideaId);
     if (!idea) return res.status(404).json({ message: "Idea not found" });
     const user = await storage.getUser(req.session.userId);
@@ -2519,7 +2559,7 @@ export function registerUiPathRoutes(app: Express): void {
     res.setHeader("X-Accel-Buffering", "no");
     res.flushHeaders();
 
-    const replay = req.query.replay === "true";
+    const replay = optionalQuery(req.query.replay) === "true";
 
     if (observerRun) {
       console.log(`[Observer] SSE stream: connecting for runId=${runId}, replay=${replay}, currentStatus=${observerRun.status}`);
@@ -2629,7 +2669,7 @@ export function registerUiPathRoutes(app: Express): void {
     if (!req.session.userId) {
       return res.status(401).json({ message: "Not authenticated" });
     }
-    const ideaId = req.params.ideaId;
+    const ideaId = requiredParam(req.params.ideaId, "ideaId");
     const idea = await storage.getIdea(ideaId);
     if (!idea) return res.status(404).json({ message: "Idea not found" });
     const user = await storage.getUser(req.session.userId);
@@ -2638,7 +2678,7 @@ export function registerUiPathRoutes(app: Express): void {
     if (idea.ownerEmail !== user.email && activeRole !== "Admin" && activeRole !== "CoE") {
       return res.status(403).json({ message: "Access denied" });
     }
-    const runId = req.params.runId;
+    const runId = requiredParam(req.params.runId, "runId");
     const observerRun = getObserverRun(runId);
     if (observerRun && observerRun.ideaId !== ideaId) {
       return res.status(403).json({ message: "Run does not belong to this idea" });

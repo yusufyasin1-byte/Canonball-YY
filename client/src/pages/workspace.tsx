@@ -3095,14 +3095,9 @@ export default function Workspace() {
     <ProcessMapPanel
       ideaId={idea.id}
       onApproved={(approvedView?: string, isReapproval?: boolean) => {
-        if (approvedView === "sdd") {
-          const sddMsg = [...displayMessages].reverse().find(m => m.docType === "SDD" && m.docId);
-          handleDocApproved("SDD", sddMsg?.docId);
-        } else {
-          queryClient.invalidateQueries({ queryKey: ["/api/ideas", idea.id, "messages"] });
-          if (approvedView) {
-            mapApprovalHandlerRef.current?.(approvedView, isReapproval);
-          }
+        queryClient.invalidateQueries({ queryKey: ["/api/ideas", idea.id, "messages"] });
+        if (approvedView) {
+          mapApprovalHandlerRef.current?.(approvedView, isReapproval);
         }
       }}
       onCompletenessChange={(pct) => {

@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useMemo, type CSSProperties } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
   ReactFlow,
@@ -100,7 +100,7 @@ interface ROEdgeProps {
   sourcePosition: Position;
   targetPosition: Position;
   data?: ProcessEdgeData;
-  style?: Record<string, unknown>;
+  style?: CSSProperties;
 }
 
 function getNodeDimensions(nodeType: string): { width: number; height: number } {
@@ -500,7 +500,7 @@ function ROCustomEdge({ id, sourceX, sourceY, targetX, targetY, sourcePosition, 
 
   return (
     <>
-      <BaseEdge id={id} path={edgePath} style={{ ...(style as Record<string, string | number> | undefined), stroke: edgeColor, strokeWidth: label ? 1.5 : 1.2, strokeLinecap: "round" as const }} />
+      <BaseEdge id={id} path={edgePath} style={{ ...style, stroke: edgeColor, strokeWidth: label ? 1.5 : 1.2, strokeLinecap: "round" }} />
       {label && (
         <EdgeLabelRenderer>
           <div

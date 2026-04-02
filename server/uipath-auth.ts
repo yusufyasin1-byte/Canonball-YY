@@ -40,7 +40,44 @@ function getResourceScopesFromMetadata(resource: ResourceType): string {
 }
 
 export function getDefaultOrScopes(): string {
-  return getResourceScopesFromMetadata("OR");
+  // UiPath confidential apps with tenant/folder role assignments authenticate
+  // reliably with OR.Default for Orchestrator access.
+  return "OR.Default";
+}
+
+function dedupeScopes(scopes: string[]): string[] {
+  const seen = new Set<string>();
+  const result: string[] = [];
+  for (const scope of scopes.map((s) => s.trim()).filter(Boolean)) {
+    if (!seen.has(scope)) {
+      seen.add(scope);
+      result.push(scope);
+    }
+  }
+  return result;
+}
+
+function buildOrScopeCandidates(scopeString: string): string[] {
+  const requested = dedupeScopes(scopeString.split(/\s+/));
+  const candidates: string[] = [];
+  const requestedJoined = requested.join(" ");
+
+  if (requested.includes("OR.Default")) {
+    candidates.push("OR.Default");
+  } else if (requested.some((scope) => scope.startsWith("OR."))) {
+    candidates.push("OR.Default", requestedJoined);
+  } else if (requestedJoined) {
+    candidates.push(requestedJoined);
+  } else {
+    candidates.push("OR.Default");
+  }
+
+  const metadataScopes = getResourceScopesFromMetadata("OR");
+  if (metadataScopes && !candidates.includes(metadataScopes)) {
+    candidates.push(metadataScopes);
+  }
+
+  return candidates.filter(Boolean);
 }
 
 let cachedConfig: UiPathAuthConfig | null = null;
@@ -106,6 +143,7 @@ async function loadConfig(): Promise<UiPathAuthConfig | null> {
     const envOrgName = process.env.UIPATH_ORGANIZATION_ID;
     const envTenantName = process.env.UIPATH_TENANT_NAME;
     const envFolderId = process.env.UIPATH_FOLDER_ID;
+    const envScopes = process.env.UIPATH_SCOPES?.trim();
 
     if (envClientId && envClientSecret && envOrgName && envTenantName) {
       cachedConfig = {
@@ -113,7 +151,7 @@ async function loadConfig(): Promise<UiPathAuthConfig | null> {
         tenantName: envTenantName,
         clientId: envClientId,
         clientSecret: envClientSecret,
-        scopes: getDefaultOrScopes(),
+        scopes: envScopes || getDefaultOrScopes(),
         folderId: envFolderId,
       };
       configLoadedAt = now;
@@ -301,144 +339,160 @@ async function fetchNewToken(config: UiPathAuthConfig, resource: ResourceType): 
   }
 
   const requestedScopes = resource === "OR" ? config.scopes : getResourceScopesFromMetadata(resource);
-  console.log(`[UiPath Auth] Requesting ${resource} token with scopes [${requestedScopes}] (source: ${scopeSource})`);
-  const params = new URLSearchParams({
-    grant_type: "client_credentials",
-    client_id: config.clientId,
-    client_secret: config.clientSecret,
-    scope: requestedScopes,
-  });
+  const requestCandidates = resource === "OR" ? buildOrScopeCandidates(requestedScopes) : [requestedScopes];
+  let lastFailure: { status: number; text: string } | null = null;
 
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 15000);
-
-  let res: Response;
-  try {
-    res = await fetch(getTokenEndpoint(), {
-      method: "POST",
-      headers: { "Content-Type": "application/x-www-form-urlencoded" },
-      body: params.toString(),
-      signal: controller.signal,
+  for (const scopeRequest of requestCandidates) {
+    console.log(`[UiPath Auth] Requesting ${resource} token with scopes [${scopeRequest}] (source: ${scopeSource})`);
+    const params = new URLSearchParams({
+      grant_type: "client_credentials",
+      client_id: config.clientId,
+      client_secret: config.clientSecret,
+      scope: scopeRequest,
     });
-  } catch (err: unknown) {
+
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 15000);
+
+    let res: Response;
+    try {
+      res = await fetch(getTokenEndpoint(), {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: params.toString(),
+        signal: controller.signal,
+      });
+    } catch (err: unknown) {
+      clearTimeout(timeoutId);
+      const msg = err instanceof Error && err.name === "AbortError"
+        ? "Token request timed out after 15s"
+        : `Token request failed: ${err instanceof Error ? err.message : "unknown"}`;
+      console.error(`[UiPath Auth] ${msg} (${resource} token, client: ${maskClientId(config.clientId)})`);
+      throw new UiPathAuthError(msg);
+    }
     clearTimeout(timeoutId);
-    const msg = err instanceof Error && err.name === "AbortError"
-      ? "Token request timed out after 15s"
-      : `Token request failed: ${err instanceof Error ? err.message : "unknown"}`;
-    console.error(`[UiPath Auth] ${msg} (${resource} token, client: ${maskClientId(config.clientId)})`);
-    throw new UiPathAuthError(msg);
-  }
-  clearTimeout(timeoutId);
 
-  if (!res.ok) {
-    const text = await res.text().catch(() => "");
+    if (!res.ok) {
+      const text = await res.text().catch(() => "");
+      lastFailure = { status: res.status, text };
 
-    if (res.status === 400 && resource !== "OR") {
-      const serviceType = (TOKEN_RESOURCE_TO_SERVICE[resource] || resource) as ServiceResourceType;
-      const requestedScopeList = requestedScopes.split(" ");
-
-      const scopeCandidates = metadataService.getScopeCandidatesForService(serviceType, config.scopes);
-      const altScopes = metadataService.getAlternateScopesForService(serviceType, requestedScopeList);
-
-      const duPrimaryLabels = new Set(["tenant-configured", "taxonomy-api", "taxonomy-non-api", "document-manager"]);
-      const candidateSets: Array<{ label: string; scopes: string[] }> = [];
-      for (const candidate of scopeCandidates) {
-        if (resource === "DU" && !duPrimaryLabels.has(candidate.label)) continue;
-        const candidateStr = candidate.scopes.join(" ");
-        if (candidateStr !== requestedScopes && !candidateSets.some(c => c.scopes.join(" ") === candidateStr)) {
-          candidateSets.push(candidate);
-        }
-      }
-      if (altScopes.length > 0) {
-        const altStr = altScopes.join(" ");
-        if (altStr !== requestedScopes && !candidateSets.some(c => c.scopes.join(" ") === altStr)) {
-          candidateSets.push({ label: "alternate-family", scopes: altScopes });
-        }
+      if (resource === "OR" && res.status === 400 && text.includes("invalid_scope")) {
+        console.warn(`[UiPath Auth] ${resource} scope candidate [${scopeRequest}] rejected with invalid_scope; trying next candidate if available`);
+        continue;
       }
 
-      console.log(`[UiPath Auth] ${resource} token failed with 400 (scopes: [${requestedScopes}], response: ${text.slice(0, 200)})`);
-      if (candidateSets.length > 0) {
-        console.log(`[UiPath Auth] ${resource} trying ${candidateSets.length} scope candidate(s): ${candidateSets.map(c => `${c.label}=[${c.scopes.join(", ")}]`).join("; ")}`);
-      }
+      if (res.status === 400 && resource !== "OR") {
+        const serviceType = (TOKEN_RESOURCE_TO_SERVICE[resource] || resource) as ServiceResourceType;
+        const requestedScopeList = scopeRequest.split(" ");
 
-      for (const candidate of candidateSets) {
-        console.log(`[UiPath Auth] ${resource} attempting candidate "${candidate.label}": [${candidate.scopes.join(", ")}]`);
-        const candParams = new URLSearchParams({
-          grant_type: "client_credentials",
-          client_id: config.clientId,
-          client_secret: config.clientSecret,
-          scope: candidate.scopes.join(" "),
-        });
-        const candController = new AbortController();
-        const candTimeoutId = setTimeout(() => candController.abort(), 15000);
-        try {
-          const candRes = await fetch(getTokenEndpoint(), {
-            method: "POST",
-            headers: { "Content-Type": "application/x-www-form-urlencoded" },
-            body: candParams.toString(),
-            signal: candController.signal,
-          });
-          clearTimeout(candTimeoutId);
-          if (candRes.ok) {
-            const candData = await candRes.json();
-            if (candData.access_token) {
-              const expiresIn = candData.expires_in || 3600;
-              const expiresAt = Date.now() + expiresIn * 1000;
-              metadataService.setValidatedScopes(serviceType, candidate.scopes);
-              console.log(`[UiPath Auth] ${resource} token acquired via candidate "${candidate.label}" [${candidate.scopes.join(", ")}] for client ${maskClientId(config.clientId)}, expires in ${expiresIn}s`);
-              logGrantedScopes(candData.access_token, resource, candidate.label);
-              return { accessToken: candData.access_token, expiresAt };
-            }
-          } else {
-            const candText = await candRes.text().catch(() => "");
-            console.warn(`[UiPath Auth] ${resource} candidate "${candidate.label}" failed (${candRes.status}): ${candText.slice(0, 200)}`);
+        const scopeCandidates = metadataService.getScopeCandidatesForService(serviceType, config.scopes);
+        const altScopes = metadataService.getAlternateScopesForService(serviceType, requestedScopeList);
+
+        const duPrimaryLabels = new Set(["tenant-configured", "taxonomy-api", "taxonomy-non-api", "document-manager"]);
+        const candidateSets: Array<{ label: string; scopes: string[] }> = [];
+        for (const candidate of scopeCandidates) {
+          if (resource === "DU" && !duPrimaryLabels.has(candidate.label)) continue;
+          const candidateStr = candidate.scopes.join(" ");
+          if (candidateStr !== scopeRequest && !candidateSets.some(c => c.scopes.join(" ") === candidateStr)) {
+            candidateSets.push(candidate);
           }
-        } catch (candErr: unknown) {
-          clearTimeout(candTimeoutId);
-          const errMsg = candErr instanceof Error ? candErr.message : "unknown";
-          console.warn(`[UiPath Auth] ${resource} candidate "${candidate.label}" error: ${errMsg}`);
+        }
+
+        if (altScopes.length > 0) {
+          const altStr = altScopes.join(" ");
+          if (altStr !== scopeRequest && !candidateSets.some(c => c.scopes.join(" ") === altStr)) {
+            candidateSets.push({ label: "alternate-family", scopes: altScopes });
+          }
+        }
+
+        console.log(`[UiPath Auth] ${resource} token failed with 400 (scopes: [${scopeRequest}], response: ${text.slice(0, 200)})`);
+        if (candidateSets.length > 0) {
+          console.log(`[UiPath Auth] ${resource} trying ${candidateSets.length} scope candidate(s): ${candidateSets.map(c => `${c.label}=[${c.scopes.join(", ")}]`).join("; ")}`);
+        }
+
+        for (const candidate of candidateSets) {
+          console.log(`[UiPath Auth] ${resource} attempting candidate "${candidate.label}": [${candidate.scopes.join(", ")}]`);
+          const candParams = new URLSearchParams({
+            grant_type: "client_credentials",
+            client_id: config.clientId,
+            client_secret: config.clientSecret,
+            scope: candidate.scopes.join(" "),
+          });
+          const candController = new AbortController();
+          const candTimeoutId = setTimeout(() => candController.abort(), 15000);
+          try {
+            const candRes = await fetch(getTokenEndpoint(), {
+              method: "POST",
+              headers: { "Content-Type": "application/x-www-form-urlencoded" },
+              body: candParams.toString(),
+              signal: candController.signal,
+            });
+            clearTimeout(candTimeoutId);
+            if (candRes.ok) {
+              const candData = await candRes.json();
+              if (candData.access_token) {
+                const expiresIn = candData.expires_in || 3600;
+                const expiresAt = Date.now() + expiresIn * 1000;
+                metadataService.setValidatedScopes(serviceType, candidate.scopes);
+                console.log(`[UiPath Auth] ${resource} token acquired via candidate "${candidate.label}" [${candidate.scopes.join(", ")}] for client ${maskClientId(config.clientId)}, expires in ${expiresIn}s`);
+                logGrantedScopes(candData.access_token, resource, candidate.label);
+                return { accessToken: candData.access_token, expiresAt };
+              }
+            } else {
+              const candText = await candRes.text().catch(() => "");
+              console.warn(`[UiPath Auth] ${resource} candidate "${candidate.label}" failed (${candRes.status}): ${candText.slice(0, 200)}`);
+            }
+          } catch (candErr: unknown) {
+            clearTimeout(candTimeoutId);
+            const errMsg = candErr instanceof Error ? candErr.message : "unknown";
+            console.warn(`[UiPath Auth] ${resource} candidate "${candidate.label}" error: ${errMsg}`);
+          }
         }
       }
+
+      console.error(`[UiPath Auth] ${resource} token request failed (${res.status}) for client ${maskClientId(config.clientId)}: ${text.slice(0, 200)}`);
+      throw new UiPathAuthError(`${resource} authentication failed (${res.status}): ${text.slice(0, 200)}`, res.status);
     }
 
-    console.error(`[UiPath Auth] ${resource} token request failed (${res.status}) for client ${maskClientId(config.clientId)}: ${text.slice(0, 200)}`);
-    throw new UiPathAuthError(`${resource} authentication failed (${res.status}): ${text.slice(0, 200)}`, res.status);
-  }
+    const data = await res.json();
+    if (!data.access_token) {
+      throw new UiPathAuthError(`${resource} token response missing access_token`);
+    }
 
-  const data = await res.json();
-  if (!data.access_token) {
-    throw new UiPathAuthError(`${resource} token response missing access_token`);
-  }
+    const expiresIn = data.expires_in || 3600;
+    const expiresAt = Date.now() + expiresIn * 1000;
 
-  const expiresIn = data.expires_in || 3600;
-  const expiresAt = Date.now() + expiresIn * 1000;
+    console.log(`[UiPath Auth] ${resource} token acquired for client ${maskClientId(config.clientId)}, expires in ${expiresIn}s`);
 
-  console.log(`[UiPath Auth] ${resource} token acquired for client ${maskClientId(config.clientId)}, expires in ${expiresIn}s`);
-
-  try {
-    const jwtParts = data.access_token.split(".");
-    if (jwtParts.length === 3) {
-      const payload = JSON.parse(Buffer.from(jwtParts[1], "base64url").toString("utf8"));
-      const tokenScopes: string[] = typeof payload.scope === "string"
-        ? payload.scope.split(" ")
-        : Array.isArray(payload.scope) ? payload.scope : [];
-      if (resource === "OR") {
-        const scopeCounts = new Map<string, number>();
-        for (const s of tokenScopes) {
-          const prefix = s.split(".")[0];
-          scopeCounts.set(prefix, (scopeCounts.get(prefix) || 0) + 1);
+    try {
+      const jwtParts = data.access_token.split(".");
+      if (jwtParts.length === 3) {
+        const payload = JSON.parse(Buffer.from(jwtParts[1], "base64url").toString("utf8"));
+        const tokenScopes: string[] = typeof payload.scope === "string"
+          ? payload.scope.split(" ")
+          : Array.isArray(payload.scope) ? payload.scope : [];
+        if (resource === "OR") {
+          const scopeCounts = new Map<string, number>();
+          for (const s of tokenScopes) {
+            const prefix = s.split(".")[0];
+            scopeCounts.set(prefix, (scopeCounts.get(prefix) || 0) + 1);
+          }
+          const summary = Array.from(scopeCounts.entries()).map(([k, v]) => `${k}=${v}`).join(", ");
+          console.log(`[UiPath Auth] ${resource} token granted scopes (by prefix): ${summary}`);
+        } else {
+          console.log(`[UiPath Auth] ${resource} token granted scopes: [${tokenScopes.join(", ")}] (requested via ${scopeSource})`);
         }
-        const summary = Array.from(scopeCounts.entries()).map(([k, v]) => `${k}=${v}`).join(", ");
-        console.log(`[UiPath Auth] ${resource} token granted scopes (by prefix): ${summary}`);
-      } else {
-        console.log(`[UiPath Auth] ${resource} token granted scopes: [${tokenScopes.join(", ")}] (requested via ${scopeSource})`);
       }
+    } catch (decodeErr: any) {
+      console.log(`[UiPath Auth] Could not decode JWT payload: ${decodeErr.message}`);
     }
-  } catch (decodeErr: any) {
-    console.log(`[UiPath Auth] Could not decode JWT payload: ${decodeErr.message}`);
+
+    return { accessToken: data.access_token, expiresAt };
   }
 
-  return { accessToken: data.access_token, expiresAt };
+  const fallbackStatus = lastFailure?.status || 400;
+  const fallbackText = lastFailure?.text || '{"error":"invalid_scope"}';
+  throw new UiPathAuthError(`${resource} authentication failed (${fallbackStatus}): ${fallbackText.slice(0, 200)}`, fallbackStatus);
 }
 
 function isTokenValid(token: CachedToken | null): boolean {
@@ -627,27 +681,34 @@ export function getResourceScopes(): Record<ResourceType, string> {
 }
 
 export async function getAccessToken(config: { clientId: string; clientSecret: string; scopes: string }): Promise<string> {
-  const params = new URLSearchParams({
-    grant_type: "client_credentials",
-    client_id: config.clientId,
-    client_secret: config.clientSecret,
-    scope: config.scopes,
-  });
-
   const tokenUrl = getTokenEndpoint();
-  const res = await fetch(tokenUrl, {
-    method: "POST",
-    headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    body: params.toString(),
-  });
 
-  if (!res.ok) {
+  for (const scopeCandidate of buildOrScopeCandidates(config.scopes)) {
+    const params = new URLSearchParams({
+      grant_type: "client_credentials",
+      client_id: config.clientId,
+      client_secret: config.clientSecret,
+      scope: scopeCandidate,
+    });
+
+    const res = await fetch(tokenUrl, {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: params.toString(),
+    });
+
+    if (res.ok) {
+      const data = await res.json();
+      return data.access_token;
+    }
+
     const text = await res.text();
-    throw new UiPathAuthError(`UiPath auth failed (${res.status}): ${text}`, res.status);
+    if (!(res.status === 400 && text.includes("invalid_scope"))) {
+      throw new UiPathAuthError(`UiPath auth failed (${res.status}): ${text}`, res.status);
+    }
   }
 
-  const data = await res.json();
-  return data.access_token;
+  throw new UiPathAuthError(`UiPath auth failed (400): {"error":"invalid_scope"}`, 400);
 }
 
 export async function testDuScopeForms(): Promise<Array<{ label: string; scopes: string[]; httpStatus: number; ok: boolean; grantedScopes: string[]; error?: string }>> {

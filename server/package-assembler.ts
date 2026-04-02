@@ -562,6 +562,17 @@ function removeUnreachableFiles(
   return { removedFiles, reasons };
 }
 
+function normalizeWorkflowSpecForGeneration<T extends { steps?: Array<{ selectorHint?: string | null }> }>(workflow: T): any {
+  if (!workflow.steps) return workflow;
+  return {
+    ...workflow,
+    steps: workflow.steps.map((step) => ({
+      ...step,
+      selectorHint: step.selectorHint ?? undefined,
+    })),
+  } as T;
+}
+
 const INFRASTRUCTURE_WORKFLOW_NAMES = new Set([
   "main",
   "initallsettings",
@@ -1437,6 +1448,7 @@ import type {
   AutoRepairEntry,
   RemediationCode,
   RepairCode,
+  QualityWarningEntry,
   StructuralPreservationMetrics,
   PerWorkflowStudioCompatibility,
   StudioCompatibilityLevel,
@@ -2605,7 +2617,7 @@ export async function buildNuGetPackage(pkg: UiPathPackage, version: string = "1
   const deterministicContext = buildDeterministicContext(projectName, processNodes, orchestratorArtifacts, sddContent || undefined);
   orchestratorArtifacts = ensureDeterministicQueueArtifact(orchestratorArtifacts, deterministicContext);
   const explicitAutomationPattern = (() => {
-    const raw = pkg.internal?.automationType;
+    const raw = String(pkg.internal?.automationType || "");
     return raw === "simple-linear" || raw === "api-data-driven" || raw === "ui-automation" || raw === "transactional-queue" || raw === "hybrid"
       ? raw
       : undefined;
@@ -2670,7 +2682,7 @@ export async function buildNuGetPackage(pkg: UiPathPackage, version: string = "1
   } else {
     const hasDecomposedSpecs = pkg.workflows && pkg.workflows.length > 0 &&
       pkg.workflows.some(w => w.steps && w.steps.length > 0);
-    let mappedTreeFallback: typeof treeEnrichment = null;
+    let mappedTreeFallback: TreeEnrichmentResult | null = null;
     let mappedAllTreeEnrichments: typeof allTreeEnrichments | null = null;
     if (hasDecomposedSpecs) {
       try {
@@ -3490,7 +3502,12 @@ export async function buildNuGetPackage(pkg: UiPathPackage, version: string = "1
             console.log(`[UiPath] Generated decomposed workflow "${wfName}": ${decompNodes.length} nodes, ${result.gaps.length} gaps`);
           }
         } else {
-          const specFallback = { name: decomp.name, description: decomp.description || "", steps: [] as Array<{ name: string; description: string }> };
+            const specFallback = {
+              name: decomp.name,
+              description: decomp.description || "",
+              variables: [],
+              steps: [],
+            };
           const result = tryGenerateOrStub(
             () => generateRichXamlFromSpec(specFallback, sddContent || undefined, undefined, tf, apEnabled, genCtx),
             wfName,
@@ -3532,7 +3549,7 @@ export async function buildNuGetPackage(pkg: UiPathPackage, version: string = "1
           continue;
         }
         const result = tryGenerateOrStub(
-          () => generateRichXamlFromSpec(wf, sddContent || undefined, undefined, tf, apEnabled, genCtx),
+          () => generateRichXamlFromSpec(normalizeWorkflowSpecForGeneration(wf), sddContent || undefined, undefined, tf, apEnabled, genCtx),
           wfName,
           wf.name || "Workflow",
         );
@@ -3569,7 +3586,7 @@ export async function buildNuGetPackage(pkg: UiPathPackage, version: string = "1
           continue;
         }
         const result = tryGenerateOrStub(
-          () => generateRichXamlFromSpec(wf, sddContent || undefined, undefined, tf, apEnabled, genCtx),
+          () => generateRichXamlFromSpec(normalizeWorkflowSpecForGeneration(wf), sddContent || undefined, undefined, tf, apEnabled, genCtx),
           wfName,
           wf.name || "Workflow",
         );
@@ -3807,7 +3824,7 @@ export async function buildNuGetPackage(pkg: UiPathPackage, version: string = "1
           if (matchingWfSpec && matchingWfSpec.steps && matchingWfSpec.steps.length > 0) {
             try {
               const retryResult = tryGenerateOrStub(
-                () => generateRichXamlFromSpec(matchingWfSpec, sddContent || undefined, undefined, tf, apEnabled, genCtx),
+                () => generateRichXamlFromSpec(normalizeWorkflowSpecForGeneration(matchingWfSpec), sddContent || undefined, undefined, tf, apEnabled, genCtx),
                 className,
                 matchingWfSpec.description || className,
               );
@@ -4348,7 +4365,7 @@ export async function buildNuGetPackage(pkg: UiPathPackage, version: string = "1
         mustRestoreAllDependencies: true,
       },
       designOptions: {
-        projectProfile: "Development",
+        projectProfile: "Developement",
         outputType: "Process",
         libraryOptions: { includeOriginalXaml: false, privateWorkflows: [] },
         processOptions: { ignoredFiles: [] },
@@ -4622,6 +4639,9 @@ export async function buildNuGetPackage(pkg: UiPathPackage, version: string = "1
       console.log(`[UiPath Recovery] Registered ${deferredHallucinatedRecoveries.length} hallucinated activity remediation(s) — targeted for per-activity recovery instead of package-level downgrade`);
     }
     const outcomeAutoRepairs: AutoRepairEntry[] = [...placeholderCleanupRepairs];
+    const mainWfName = generatedWorkflowNames.has("Main")
+      ? "Main"
+      : (generatedWorkflowNames.has("Process") ? "Process" : (enrichmentsToProcess[0]?.name || "Main").replace(/\s+/g, "_"));
     const structuralPreservationMetrics: StructuralPreservationMetrics[] = [];
 
     function mapCheckToRemediationCode(check: string): RemediationCode {
@@ -5231,7 +5251,7 @@ export async function buildNuGetPackage(pkg: UiPathPackage, version: string = "1
           usedFallbackStubs: stubsGenerated.length > 0,
           outcomeReport: qualityGateResult ? {
             remediations: qualityGateResult.violations?.map(v => ({ level: v.severity || "warning" })) || [],
-            studioCompatibility: qualityGateResult.violations?.filter(v => v.category === "studio-blocked").map(v => ({ level: "studio-blocked" })) || [],
+            studioCompatibility: qualityGateResult.violations?.filter(v => v.check === "studio-loadability").map(v => ({ level: "studio-blocked" })) || [],
             fullyGeneratedFiles: xamlEntries.filter(e => !stubsGenerated.includes(e.name)).map(e => e.name),
           } : undefined,
           xamlEntries,
@@ -5576,13 +5596,15 @@ export async function buildNuGetPackage(pkg: UiPathPackage, version: string = "1
       !dhgFilesWithCatalogViolations.has(f)
     );
 
-    const dhgQualityWarnings = qualityGateResult.violations
+    const dhgQualityWarnings: QualityWarningEntry[] = qualityGateResult.violations
       .filter(v => v.severity === "warning")
       .map(v => ({
         check: v.check,
         file: v.file || "unknown",
         detail: v.detail,
-        severity: v.severity as "warning",
+        severity: "warning" as const,
+        developerAction: `Review warning ${v.check} in ${v.file || "unknown"} and confirm the generated workflow is acceptable.`,
+        estimatedEffortMinutes: 5,
         businessContext: v.businessContext,
         stubCategory: v.stubCategory,
       }));
@@ -6131,18 +6153,24 @@ ${depEntries}
       repairCode,
       file: fileMatch ? fileMatch[1] : "unknown",
       description: fix,
+      developerAction: `Review and validate the automatic repair in ${fileMatch ? fileMatch[1] : "unknown"}.`,
+      estimatedEffortMinutes: 5,
     });
   }
 
   if (qualityGateResult.typeRepairs) {
     for (const tr of qualityGateResult.typeRepairs) {
-      let repairCode = "REPAIR_TYPE_MISMATCH";
-      if (tr.repairKind === "conversion-wrap") repairCode = "REPAIR_TYPE_CONVERSION_WRAP";
-      else if (tr.repairKind === "variable-type-change") repairCode = "REPAIR_TYPE_VARIABLE_CHANGE";
+      const repairCode: RepairCode = tr.repairKind === "conversion-wrap"
+        ? "REPAIR_GENERIC"
+        : tr.repairKind === "variable-type-change"
+          ? "REPAIR_GENERIC"
+          : "REPAIR_GENERIC";
       outcomeAutoRepairs.push({
         repairCode,
         file: tr.file,
         description: tr.detail,
+        developerAction: `Review the type repair in ${tr.file} and confirm the repaired expression or variable type is correct.`,
+        estimatedEffortMinutes: 10,
       });
     }
   }
@@ -6252,6 +6280,8 @@ ${depEntries}
       file: v.file || "unknown",
       detail: v.detail,
       severity: v.severity as "warning",
+      developerAction: `Review warning ${v.check} in ${v.file || "unknown"} and confirm the generated workflow is acceptable.`,
+      estimatedEffortMinutes: 5,
       businessContext: v.businessContext,
       stubCategory: v.stubCategory,
     }));

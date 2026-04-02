@@ -543,8 +543,8 @@ function buildDhgFromBuildResult(
       feasibilityComplexity: ctx.idea.feasibilityComplexity || undefined,
       feasibilityEffortEstimate: ctx.idea.feasibilityEffortEstimate || undefined,
       qualityWarnings: buildResult.outcomeReport.qualityWarnings.map(w => ({
-        code: w.code,
-        message: w.message,
+        code: w.check,
+        message: w.detail,
         severity: w.severity,
       })),
     };
@@ -1381,7 +1381,7 @@ export async function compilePackageFromSpecs(
       analysisCount: dhgResult.analysisReports.length,
     });
 
-    tracker.start("solution_bundle", "Building solution-ready artifact bundle");
+    tracker.start("solution_bundle", "Building native UiPath .uis solution export");
     const solutionArtifact = buildUiPathSolutionArtifact({
       pkg: enriched,
       buildResult,
@@ -1391,7 +1391,7 @@ export async function compilePackageFromSpecs(
       ctx,
       version: ver,
     });
-    tracker.complete("solution_bundle", `Solution bundle built (${Math.round(solutionArtifact.buffer.length / 1024)}KB)`, {
+    tracker.complete("solution_bundle", `Native UiPath .uis solution export built (${Math.round(solutionArtifact.buffer.length / 1024)}KB)`, {
       sizeBytes: solutionArtifact.buffer.length,
       componentCount: solutionArtifact.components.length,
     });
