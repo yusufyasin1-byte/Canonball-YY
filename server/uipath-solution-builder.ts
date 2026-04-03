@@ -495,6 +495,14 @@ export function buildUiPathSolutionArtifact(params: {
       description: "Latest Process Design Document used during generation",
     });
   }
+  if (ctx.dsd?.content) {
+    components.push({
+      type: "documentation",
+      name: "DSD",
+      path: `${projectFolder}/docs/DSD.md`,
+      description: "Detailed Solution Design Document used for implementation and support handoff",
+    });
+  }
   if (testCases.length > 0 || testSets.length > 0) {
     components.push({
       type: "documentation",
@@ -602,6 +610,9 @@ export function buildUiPathSolutionArtifact(params: {
   }
   if (ctx.pdd?.content) {
     zip.addFile(`${projectFolder}/docs/PDD.md`, Buffer.from(ctx.pdd.content, "utf8"));
+  }
+  if (ctx.dsd?.content) {
+    zip.addFile(`${projectFolder}/docs/DSD.md`, Buffer.from(ctx.dsd.content, "utf8"));
   }
   if (testCases.length > 0 || testSets.length > 0) {
     zip.addFile(

@@ -4,6 +4,22 @@ This changelog captures the key release notes for the `Updated-code---solution-p
 
 ## 2026-04-03
 
+### `Unreleased` - Add UiPath template-aligned PDD, SDD, and DSD support
+
+Added
+- A UiPath-template document helper module for canonical PDD, SDD, and DSD section structures.
+- Focused tests for template prompt coverage and section normalization.
+- DSD support in the solution artifact bundle so implementation documents travel with exported solutions.
+
+Changed
+- Updated document generation to use UiPath Automation Hub template-aligned prompts and normalized section output.
+- Extended document routes, approvals, artifacts, exports, and UI viewers so `DSD` behaves as a first-class document type.
+- Expanded chat/document parsing and artifact download flows to handle all three document types consistently.
+
+Validated
+- Focused template-helper tests passed.
+- Updated solution-builder tests passed with `DSD` included in the exported solution docs.
+
 ### `Unreleased` - Add deploy-time workflow contract integrity validation
 
 Added

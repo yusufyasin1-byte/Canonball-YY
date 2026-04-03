@@ -1007,7 +1007,7 @@ interface ChatMsg {
   content: string;
   timestamp: Date;
   isStreaming?: boolean;
-  docType?: "PDD" | "SDD";
+  docType?: "PDD" | "SDD" | "DSD";
   docId?: number;
   uipathData?: any;
   deployReport?: any;
@@ -1016,8 +1016,8 @@ interface ChatMsg {
 function stripStepTags(text: string): string {
   return text
     .replace(/\[STEP:\s*[^\]]*\]/g, "")
-    .replace(/\[DOC:(PDD|SDD):\d+\]/g, "")
-    .replace(/\[APPROVE:(PDD|SDD)\]/g, "")
+    .replace(/\[DOC:(PDD|SDD|DSD):\d+\]/g, "")
+    .replace(/\[APPROVE:(PDD|SDD|DSD)\]/g, "")
     .replace(/\[DEPLOY_UIPATH\]/g, "")
     .replace(/\[DEPLOY_REPORT:[\s\S]*?\]/g, "")
     .replace(/\[STAGE_BACK:\s*[^\]]+\]/g, "")
@@ -1027,11 +1027,11 @@ function stripStepTags(text: string): string {
     .trim();
 }
 
-function parseMessageMeta(content: string): { docType?: "PDD" | "SDD"; docId?: number; uipathData?: any; deployReport?: any; displayContent: string } {
-  const docMatch = content.match(/^\[DOC:(PDD|SDD):(\d+)\]/);
+function parseMessageMeta(content: string): { docType?: "PDD" | "SDD" | "DSD"; docId?: number; uipathData?: any; deployReport?: any; displayContent: string } {
+  const docMatch = content.match(/^\[DOC:(PDD|SDD|DSD):(\d+)\]/);
   if (docMatch) {
     return {
-      docType: docMatch[1] as "PDD" | "SDD",
+      docType: docMatch[1] as "PDD" | "SDD" | "DSD",
       docId: parseInt(docMatch[2]),
       displayContent: stripStepTags(content.slice(docMatch[0].length)),
     };
@@ -1271,7 +1271,7 @@ function ChatPanel({ idea, switchProcessMapViewRef, onMapApprovalReady }: { idea
   savedMessagesRef.current = savedMessages;
 
   const isSystemTriggerMsg = (content: string) =>
-    /^Generate the (Process Design Document|Solution Design Document).*\[DOC:(PDD|SDD):/.test(content) ||
+    /^Generate the (Process Design Document|Solution Design Document|Detailed Solution Design Document).*\[DOC:(PDD|SDD|DSD):/.test(content) ||
     /^Generate the To-Be process map based on the approved As-Is map/.test(content) ||
     /^First, perform the feasibility assessment/.test(content);
 
@@ -1496,14 +1496,14 @@ function ChatPanel({ idea, switchProcessMapViewRef, onMapApprovalReady }: { idea
             setLiveStatus("");
           }
           streamingMsgRef.current += data.token;
-          const docTagMatch = streamingMsgRef.current.match(/^\[DOC:(PDD|SDD):/);
+          const docTagMatch = streamingMsgRef.current.match(/^\[DOC:(PDD|SDD|DSD):/);
           if (docTagMatch && !isGeneratingDocRef.current) {
             startDocStreaming(docTagMatch[1]);
             docGenIdAtStart = docGenIdRef.current;
           }
           if (isGeneratingDocRef.current && generatingDocTypeRef.current !== "DHG") {
             const raw = streamingMsgRef.current;
-            const tagEnd = raw.match(/^\[DOC:(PDD|SDD):\d+\]/);
+            const tagEnd = raw.match(/^\[DOC:(PDD|SDD|DSD):\d+\]/);
             const docText = tagEnd ? raw.slice(tagEnd[0].length) : raw;
             setStreamingDocContent(docText);
           }
@@ -2114,7 +2114,7 @@ function ChatPanel({ idea, switchProcessMapViewRef, onMapApprovalReady }: { idea
 
   const [approvedDocIds, setApprovedDocIds] = useState<Set<number>>(new Set());
 
-  const handleDocApproved = useCallback(async (docType: "PDD" | "SDD", docId?: number) => {
+  const handleDocApproved = useCallback(async (docType: "PDD" | "SDD" | "DSD", docId?: number) => {
     if (docId) {
       setApprovedDocIds(prev => new Set(prev).add(docId));
     }
@@ -2204,7 +2204,7 @@ function ChatPanel({ idea, switchProcessMapViewRef, onMapApprovalReady }: { idea
         credentials: "include",
       });
       if (!res.ok) throw new Error(await res.text());
-      handleDocApproved(pendingApprovalDoc.docType as "PDD" | "SDD", pendingApprovalDoc.docId);
+      handleDocApproved(pendingApprovalDoc.docType as "PDD" | "SDD" | "DSD", pendingApprovalDoc.docId);
     } catch (err: any) {
       toast({ title: "Approval failed", description: err.message, variant: "destructive" });
     } finally {

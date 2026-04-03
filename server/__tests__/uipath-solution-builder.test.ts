@@ -70,6 +70,7 @@ describe("UiPath solution builder", () => {
         idea: { title: "Invoice Automation" } as any,
         sdd: { content: "# SDD" } as any,
         pdd: { content: "# PDD" } as any,
+        dsd: { content: "# DSD" } as any,
         mapNodes: [],
         processEdges: [],
       },
@@ -113,6 +114,7 @@ describe("UiPath solution builder", () => {
     expect(entryNames).toContain("InvoiceAutomation/DeveloperHandoffGuide.md");
     expect(entryNames).toContain("InvoiceAutomation/docs/SDD.md");
     expect(entryNames).toContain("InvoiceAutomation/docs/PDD.md");
+    expect(entryNames).toContain("InvoiceAutomation/docs/DSD.md");
     expect(entryNames).toContain("InvoiceAutomation/docs/TestCases.md");
     expect(entryNames).toContain("InvoiceAutomation/docs/TestCases.json");
     expect(entryNames).toContain("resources/solution_folder/package/InvoiceAutomation.json");

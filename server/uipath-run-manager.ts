@@ -479,7 +479,8 @@ async function executeRun(
     if (mNodes.length > 0) {
       pEdges = await processMapStorage.getEdgesByIdeaId(ideaId, mVariant as "to-be" | "as-is");
     }
-    const preloadedContext: IdeaContext = { idea, sdd: sddDoc, pdd: pddDoc, mapNodes: mNodes, processEdges: pEdges };
+    const dsdDoc = await documentStorage.getLatestDocument(ideaId, "DSD");
+    const preloadedContext: IdeaContext = { idea, sdd: sddDoc, pdd: pddDoc, dsd: dsdDoc, mapNodes: mNodes, processEdges: pEdges };
 
     let userMetaValidationMode: MetaValidationMode = options?.metaValidationMode || "Auto";
 

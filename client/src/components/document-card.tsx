@@ -46,7 +46,7 @@ function parseDocumentSections(content: string): DocumentSection[] {
   const cleaned = content
     .replace(/\[AUTOMATION_TYPE:\s*[^\]]+\]/gi, "")
     .replace(/\[STEP:\s*[\d.]+\s+[^\]]*\]/g, "")
-    .replace(/\[DOC:(PDD|SDD):\d+\]/g, "")
+    .replace(/\[DOC:(PDD|SDD|DSD):\d+\]/g, "")
     .replace(/\[DEPLOY_UIPATH\]/g, "")
     .replace(/\[STAGE_BACK:\s*[^\]]+\]/g, "")
     .replace(/^###\s+(\d+\.?\s*(?:Orchestrator|Deployment))/gim, '## $1');
@@ -80,7 +80,7 @@ function parseDocumentSections(content: string): DocumentSection[] {
 }
 
 interface DocumentCardProps {
-  docType: "PDD" | "SDD";
+  docType: "PDD" | "SDD" | "DSD";
   docId: number;
   content: string;
   ideaId: string;
@@ -186,7 +186,11 @@ export function DocumentCard({ docType, docId, content, ideaId, isApproved, vers
     });
   }
 
-  const docTitle = docType === "PDD" ? "Process Design Document" : "Solution Design Document";
+  const docTitle = docType === "PDD"
+    ? "Process Design Document"
+    : docType === "SDD"
+      ? "Solution Design Document"
+      : "Detailed Solution Design Document";
 
   return (
     <div
@@ -643,7 +647,6 @@ export function UiPathPackageCard({ packageData, ideaId, onDeployProgress, onDep
   const isFailed = status === "FAILED";
   const isFallbackReady = status === "FALLBACK_READY";
   const hasWarnings = (status === "READY_WITH_WARNINGS" || status === "FALLBACK_READY") && warnings && warnings.length > 0;
-  const recommendedOutput = artifactMeta?.solution?.recommendation?.recommendedOutput || "solution";
 
   const { data: orchestratorStatus } = useQuery<{ configured: boolean }>({
     queryKey: ["/api/settings/uipath/status"],
@@ -657,6 +660,7 @@ export function UiPathPackageCard({ packageData, ideaId, onDeployProgress, onDep
       return res.json();
     },
   });
+  const recommendedOutput = artifactMeta?.solution?.recommendation?.recommendedOutput || "solution";
 
   const pushMutation = useMutation({
     mutationFn: async () => {

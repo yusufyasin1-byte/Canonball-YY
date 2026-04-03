@@ -340,6 +340,7 @@ export interface IdeaContext {
   idea: NonNullable<Awaited<ReturnType<typeof storage.getIdea>>>;
   sdd: Awaited<ReturnType<typeof documentStorage.getLatestDocument>>;
   pdd: Awaited<ReturnType<typeof documentStorage.getLatestDocument>>;
+  dsd: Awaited<ReturnType<typeof documentStorage.getLatestDocument>>;
   mapNodes: any[];
   processEdges: any[];
 }
@@ -409,6 +410,7 @@ async function loadIdeaContext(ideaId: string): Promise<IdeaContext> {
 
   const sdd = await documentStorage.getLatestDocument(ideaId, "SDD");
   const pdd = await documentStorage.getLatestDocument(ideaId, "PDD");
+  const dsd = await documentStorage.getLatestDocument(ideaId, "DSD");
   const toBeNodes = await processMapStorage.getNodesByIdeaId(ideaId, "to-be");
   const asIsNodes = await processMapStorage.getNodesByIdeaId(ideaId, "as-is");
   const mapNodes = toBeNodes.length > 0 ? toBeNodes : asIsNodes;
@@ -419,7 +421,7 @@ async function loadIdeaContext(ideaId: string): Promise<IdeaContext> {
     processEdges = await processMapStorage.getEdgesByIdeaId(ideaId, mapVariant as "to-be" | "as-is");
   }
 
-  return { idea, sdd, pdd, mapNodes, processEdges };
+  return { idea, sdd, pdd, dsd, mapNodes, processEdges };
 }
 
 async function extractOrchestratorArtifacts(sddContent: string | undefined, warnings: PipelineWarning[]): Promise<any | null> {

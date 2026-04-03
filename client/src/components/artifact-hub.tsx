@@ -25,7 +25,7 @@ import remarkGfm from "remark-gfm";
 import { ProcessMapViewerModal } from "./process-map-viewer-modal";
 
 interface ArtifactSummary {
-  type: "as-is" | "to-be" | "pdd" | "sdd" | "uipath" | "dhg";
+  type: "as-is" | "to-be" | "pdd" | "sdd" | "dsd" | "uipath" | "dhg";
   label: string;
   exists: boolean;
   status: string;
@@ -47,6 +47,7 @@ const ARTIFACT_ICONS: Record<string, typeof Map> = {
   "to-be": Map,
   pdd: FileText,
   sdd: FileText,
+  dsd: FileText,
   uipath: Package,
   dhg: BookOpen,
 };
@@ -101,7 +102,7 @@ function DocumentViewerModal({ open, onClose, title, ideaId, artifactType }: { o
       if (!versions || versions.length === 0) throw new Error("No document found");
       return { content: versions[0].content, version: versions[0].version, status: versions[0].status };
     },
-    enabled: open && (artifactType === "pdd" || artifactType === "sdd"),
+    enabled: open && (artifactType === "pdd" || artifactType === "sdd" || artifactType === "dsd"),
   });
 
   if (!open) return null;
@@ -662,7 +663,7 @@ export function ArtifactHub({ ideaId, ideaTitle }: ArtifactHubProps) {
       const hasUipath = artifacts.find(a => a.type === "uipath")?.exists;
       const hasDhg = artifacts.find(a => a.type === "dhg")?.exists;
 
-      const resp = await fetch(`/api/ideas/${ideaId}/export?types=as-is,to-be,pdd,sdd`, { credentials: "include" });
+      const resp = await fetch(`/api/ideas/${ideaId}/export?types=as-is,to-be,pdd,sdd,dsd`, { credentials: "include" });
       if (resp.ok) {
         const blob = await resp.blob();
         const url = URL.createObjectURL(blob);

@@ -27,6 +27,15 @@ import {
   AlignmentType, ShadingType, ImageRun,
 } from "docx";
 import { renderProcessMapImage } from "./process-map-renderer";
+import {
+  buildDsdTemplatePrompt,
+  buildPddTemplatePrompt,
+  buildSddTemplatePrompt,
+  ensureTemplateSections,
+  DSD_TEMPLATE_SECTIONS,
+  PDD_TEMPLATE_SECTIONS,
+  SDD_TEMPLATE_SECTIONS,
+} from "./doc-templates/uipath-template-docs";
 import AdmZip from "adm-zip";
 import archiver from "archiver";
 
@@ -361,6 +370,50 @@ async function generateDocument(ideaId: string, docType: string, onStageEvent?: 
     if (pdd) {
       contextPrompt = `\n\nHere is the approved PDD:\n${pdd.content}`;
     }
+  } else if (docType === "DSD") {
+    const pdd = await documentStorage.getLatestDocument(ideaId, "PDD");
+    const sdd = await documentStorage.getLatestDocument(ideaId, "SDD");
+    const asIsNodes = await processMapStorage.getNodesByIdeaId(ideaId, "as-is");
+    const toBeNodes = await processMapStorage.getNodesByIdeaId(ideaId, "to-be");
+    const asIsEdges = await processMapStorage.getEdgesByIdeaId(ideaId, "as-is");
+    const toBeEdges = await processMapStorage.getEdgesByIdeaId(ideaId, "to-be");
+
+    if (pdd) {
+      contextPrompt += `\n\nApproved PDD:\n${pdd.content}`;
+    }
+    if (sdd) {
+      contextPrompt += `\n\nApproved or latest SDD:\n${sdd.content}`;
+    }
+
+    const activeNodes = toBeNodes.length > 0 ? toBeNodes : asIsNodes;
+    const activeEdges = toBeNodes.length > 0 ? toBeEdges : asIsEdges;
+    if (activeNodes.length > 0) {
+      contextPrompt += `\n\nProcess map context:\n${JSON.stringify({
+        nodes: activeNodes.map((n) => ({
+          name: n.name,
+          type: n.nodeType,
+          role: n.role,
+          system: n.system,
+          description: n.description,
+        })),
+        edges: activeEdges.map((e: any) => ({ source: e.sourceNodeId, target: e.targetNodeId, label: e.label })),
+      })}`;
+    }
+
+    try {
+      const messages = await chatStorage.getMessagesByIdeaId(ideaId);
+      const uipathMsg = findUiPathMessage(messages);
+      if (uipathMsg) {
+        const pkg = parseUiPathPackage(uipathMsg);
+        contextPrompt += `\n\nGenerated UiPath package context:\n${JSON.stringify({
+          projectName: pkg.projectName,
+          workflows: (pkg.workflows || []).map((wf: any) => ({ name: wf.name, description: wf.description })),
+          dependencies: pkg.dependencies || [],
+        })}`;
+      }
+    } catch (err: any) {
+      console.warn(`[DSD] Could not load package context: ${err.message}`);
+    }
   }
 
   if (docType === "SDD") {
@@ -458,7 +511,7 @@ async function generateDocument(ideaId: string, docType: string, onStageEvent?: 
 
     const packageRegistryContext = metadataService.getPackageRegistryContext();
     const ideaAutomationType = (idea.automationType as string) || undefined;
-    const sddProsePrompt = buildSddProsePrompt(platformCapabilitiesText, packageRegistryContext, ideaAutomationType);
+    const sddProsePrompt = buildSddTemplatePrompt(platformCapabilitiesText, packageRegistryContext, ideaAutomationType);
 
     const slimArtifactsCtx = buildArtifactsContext(platformProfile);
     slimArtifactsCtx.automationType = ideaAutomationType;
@@ -505,7 +558,7 @@ async function generateDocument(ideaId: string, docType: string, onStageEvent?: 
     console.log(`[SDD] Parallel generation completed in ${elapsed}s`);
     runLogger.stageEnd("llm_parallel_generation", "succeeded", { elapsedSeconds: elapsed, timeoutMs: sddTimeout });
 
-    const proseText = proseResponse.text;
+    const proseText = ensureTemplateSections(proseResponse.text, SDD_TEMPLATE_SECTIONS);
     let artifactsText = artifactsResponse.text;
 
     if (!parseArtifactBlock(artifactsText)) {
@@ -603,7 +656,11 @@ async function generateDocument(ideaId: string, docType: string, onStageEvent?: 
   }
 
   pddLogger.stageStart("llm_generation");
-  const prompt = docType === "PDD" ? PDD_PROMPT : UIPATH_PROMPT;
+  const prompt = docType === "PDD"
+    ? buildPddTemplatePrompt()
+    : docType === "DSD"
+      ? buildDsdTemplatePrompt()
+      : UIPATH_PROMPT;
   const maxTokens = 4096;
   try {
     const response = await getLLM().create({
@@ -622,7 +679,13 @@ async function generateDocument(ideaId: string, docType: string, onStageEvent?: 
       });
     } catch {}
 
-    return { content: response.text };
+    const normalizedContent = docType === "PDD"
+      ? ensureTemplateSections(response.text, PDD_TEMPLATE_SECTIONS)
+      : docType === "DSD"
+        ? ensureTemplateSections(response.text, DSD_TEMPLATE_SECTIONS)
+        : response.text;
+
+    return { content: normalizedContent };
   } catch (docErr: any) {
     pddLogger.stageEnd("llm_generation", "failed", undefined, docErr?.message);
     const failOutcome = pddLogger.buildOutcomeSummary({ status: "failed", errorMessage: docErr?.message });
@@ -649,8 +712,10 @@ export function registerDocumentRoutes(app: Express): void {
 
       const pdd = await documentStorage.getLatestDocument(ideaId, "PDD");
       const sdd = await documentStorage.getLatestDocument(ideaId, "SDD");
+      const dsd = await documentStorage.getLatestDocument(ideaId, "DSD");
       const pddApproval = await documentStorage.getApproval(ideaId, "PDD");
       const sddApproval = await documentStorage.getApproval(ideaId, "SDD");
+      const dsdApproval = await documentStorage.getApproval(ideaId, "DSD");
 
       const asIsNodes = await processMapStorage.getNodesByIdeaId(ideaId, "as-is");
       const toBeNodes = await processMapStorage.getNodesByIdeaId(ideaId, "to-be");
@@ -704,6 +769,13 @@ export function registerDocumentRoutes(app: Express): void {
           artifactsValid: sdd?.artifactsValid ?? null,
           ...(sdd && sdd.artifactsValid === false ? { blockedReason: "Deployment artifacts are missing or invalid. Revise the SDD to regenerate artifacts." } : {}),
           ...(sdd?.artifactWarnings ? { artifactWarnings: JSON.parse(sdd.artifactWarnings) } : {}),
+        },
+        {
+          type: "dsd" as const,
+          label: "Detailed Solution Design Document",
+          exists: !!dsd,
+          status: dsdApproval ? "Approved" : dsd ? (dsd.status === "approved" ? "Approved" : "Draft") : "Not Generated",
+          version: dsd?.version || null,
         },
         {
           type: "uipath" as const,
@@ -811,7 +883,7 @@ export function registerDocumentRoutes(app: Express): void {
     if (!ideaId) return;
 
     const { type } = req.body;
-    if (!type || !["PDD", "SDD"].includes(type)) {
+    if (!type || !["PDD", "SDD", "DSD"].includes(type)) {
       return res.status(400).json({ message: "Invalid document type" });
     }
 
@@ -865,7 +937,7 @@ export function registerDocumentRoutes(app: Express): void {
       const nodes = type === "PDD"
         ? await processMapStorage.getNodesByIdeaId(ideaId, "as-is")
         : [];
-      const snapshot = JSON.stringify({ generatedFrom: type === "PDD" ? "as-is-map" : "pdd", nodes });
+      const snapshot = JSON.stringify({ generatedFrom: type === "PDD" ? "as-is-map" : type === "SDD" ? "pdd" : "sdd", nodes });
 
       if (type === "PDD") {
         try {
@@ -969,7 +1041,7 @@ export function registerDocumentRoutes(app: Express): void {
     try {
       const result = await approveDocument({
         ideaId,
-        docType: doc.type as "PDD" | "SDD",
+        docType: doc.type as "PDD" | "SDD" | "DSD",
         docId,
         userId: req.session.userId!,
         activeRole: req.session.activeRole,
@@ -1470,11 +1542,11 @@ export function registerDocumentRoutes(app: Express): void {
     const ideaId = req.params.ideaId as string;
 
     const types = ((req.query.types as string) || "").split(",").filter(Boolean);
-    const validTypes = ["as-is", "to-be", "pdd", "sdd"];
+    const validTypes = ["as-is", "to-be", "pdd", "sdd", "dsd"];
     const requestedTypes = types.length ? types.filter(t => validTypes.includes(t.toLowerCase())) : validTypes;
 
     if (!requestedTypes.length) {
-      return res.status(400).json({ message: "No valid document types specified. Use: as-is, to-be, pdd, sdd" });
+      return res.status(400).json({ message: "No valid document types specified. Use: as-is, to-be, pdd, sdd, dsd" });
     }
 
     try {
@@ -1839,7 +1911,11 @@ export function registerDocumentRoutes(app: Express): void {
 
         } else {
           const docType = typeLower.toUpperCase();
-          const label = docType === "PDD" ? "Process Design Document" : "Solution Design Document";
+          const label = docType === "PDD"
+            ? "Process Design Document"
+            : docType === "SDD"
+              ? "Solution Design Document"
+              : "Detailed Solution Design Document";
 
           docChildren.push(new Paragraph({
             heading: HeadingLevel.HEADING_1,

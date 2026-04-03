@@ -6,7 +6,7 @@ import { parseArtifactBlockAsObject, validateArtifactBlock } from "./lib/artifac
 
 export interface ApproveDocumentOptions {
   ideaId: string;
-  docType: "PDD" | "SDD";
+  docType: "PDD" | "SDD" | "DSD";
   docId?: number;
   userId: string;
   activeRole?: string;
@@ -123,6 +123,12 @@ export async function approveDocument(opts: ApproveDocumentOptions): Promise<App
         console.error("[Document Service] Failed to build SDD deploy prompt:", promptErr.message);
       }
       await chatStorage.createMessage(ideaId, "assistant", deployPrompt);
+    } else if (docType === "DSD") {
+      await chatStorage.createMessage(
+        ideaId,
+        "assistant",
+        "DSD approved. The detailed implementation design is now finalized and available for developer handoff and support use."
+      );
     }
   }
 
