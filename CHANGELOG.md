@@ -4,6 +4,20 @@ This changelog captures the key release notes for the `Updated-code---solution-p
 
 ## 2026-04-03
 
+### `Unreleased` - Add deploy-time workflow contract integrity validation
+
+Added
+- A deploy-time workflow contract integrity validator for invoked UiPath workflows.
+- Focused regression coverage for non-runtime property exclusion and real invoke-contract defects.
+
+Changed
+- Extended the deployment gate to summarize contract-integrity defects alongside workflow-analyzer results.
+- Reduced false positives by classifying designer and serialization-only fields separately from runtime argument contracts.
+
+Validated
+- Focused contract-integrity tests passed.
+- Fresh PO generation still succeeded under the stricter deploy-time gate.
+
 ### `14c34e7` - Add Test Manager automation generation utilities
 
 Added
@@ -75,4 +89,3 @@ Changed
 
 Validated
 - Real UiPath solution deployment and activation were proven against the PO solution path.
-

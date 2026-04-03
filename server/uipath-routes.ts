@@ -12,6 +12,7 @@ import { chatStorage } from "./replit_integrations/chat/storage";
 import { storage } from "./storage";
 import { findUiPathMessage, parseUiPathPackage, generateUiPathPackage, computeVersion, getCachedPipelineResult, runBuildPipeline, type PipelineProgressEvent } from "./uipath-pipeline";
 import { aggregateAnalysisReports, analyzeAndFix, formatDeploymentGateMarkdown, shouldBlockDeploymentFromAnalysis } from "./workflow-analyzer";
+import { validateContractIntegrity } from "./xaml/workflow-contract-integrity";
 import * as auth from "./uipath-auth";
 import { metadataService, ORCHESTRATOR_DIAGNOSTIC_ENTITIES } from "./catalog/metadata-service";
 import * as orch from "./orchestrator-client";
@@ -50,6 +51,7 @@ function getWorkflowAnalyzerGateFailure(prebuiltResult: any): {
   blocked: boolean;
   summary?: string;
   aggregate?: ReturnType<typeof aggregateAnalysisReports>;
+  contractIntegrity?: ReturnType<typeof validateContractIntegrity>;
 } {
   const sourceEntries = Array.isArray(prebuiltResult?.xamlEntries) ? prebuiltResult.xamlEntries : [];
   const analysisReports = sourceEntries.length > 0
@@ -63,14 +65,35 @@ function getWorkflowAnalyzerGateFailure(prebuiltResult: any): {
   }
 
   const aggregate = aggregateAnalysisReports(analysisReports);
-  if (!shouldBlockDeploymentFromAnalysis(analysisReports)) {
-    return { blocked: false, aggregate };
+  const contractIntegrity = sourceEntries.length > 0
+    ? validateContractIntegrity(sourceEntries)
+    : undefined;
+  const analyzerBlocks = shouldBlockDeploymentFromAnalysis(analysisReports);
+  const contractBlocks = Boolean(contractIntegrity?.hasContractIntegrityIssues);
+
+  if (!analyzerBlocks && !contractBlocks) {
+    return { blocked: false, aggregate, contractIntegrity };
   }
+
+  const contractSummary = contractIntegrity
+    ? [
+        contractIntegrity.contractIntegritySummary,
+        contractIntegrity.contractIntegrityDefects.length > 0
+          ? contractIntegrity.contractIntegrityDefects
+              .map((defect) => `- ${defect.file}: ${defect.defectType} (${defect.propertyName || defect.targetArgument || "unknown"}) -> ${defect.notes}`)
+              .join("\n")
+          : "",
+      ].filter(Boolean).join("\n")
+    : "";
 
   return {
     blocked: true,
     aggregate,
-    summary: formatDeploymentGateMarkdown(analysisReports),
+    contractIntegrity,
+    summary: [
+      formatDeploymentGateMarkdown(analysisReports),
+      contractSummary ? "\n**Contract Integrity**\n" + contractSummary : "",
+    ].filter(Boolean).join("\n"),
   };
 }
 
