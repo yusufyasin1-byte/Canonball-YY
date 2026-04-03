@@ -3,6 +3,7 @@ import AdmZip from "adm-zip";
 import { buildUiPathSolutionArtifact } from "../uipath-solution-builder";
 import type { BuildResult } from "../package-assembler";
 import type { UiPathPackage } from "../types/uipath-package";
+import type { UiPathDeliveryRecommendation } from "../types/uipath-solution";
 
 describe("UiPath solution builder", () => {
   it("builds a native .uis solution export around the generated project", () => {
@@ -44,6 +45,21 @@ describe("UiPath solution builder", () => {
       projectJsonContent: JSON.stringify({ name: "InvoiceAutomation", main: "Main.xaml" }, null, 2),
     };
 
+    const deliveryRecommendation: UiPathDeliveryRecommendation = {
+      recommendedOutput: "solution",
+      rationale: ["Multiple shared resources were found."],
+      signals: {
+        automationType: "hybrid",
+        workflowCount: 1,
+        queueCount: 1,
+        assetCount: 1,
+        storageBucketCount: 1,
+        actionCatalogCount: 0,
+        integrationCount: 0,
+        sharedResourceCount: 3,
+      },
+    };
+
     const artifact = buildUiPathSolutionArtifact({
       pkg,
       buildResult,
@@ -58,12 +74,31 @@ describe("UiPath solution builder", () => {
         processEdges: [],
       },
       version: "1.0.20260402",
+      deliveryRecommendation,
+      testCases: [
+        {
+          name: "TC001 - Happy path",
+          description: "Validates invoice happy path",
+          steps: [
+            { action: "Submit invoice", expected: "Queue item created" },
+          ],
+        },
+      ],
+      testSets: [
+        {
+          name: "Smoke",
+          description: "Core validation",
+          testCaseNames: ["TC001 - Happy path"],
+        },
+      ],
     });
 
     expect(artifact.fileName).toContain("InvoiceAutomation_Solution");
     expect(artifact.fileName.endsWith(".uis")).toBe(true);
     expect(artifact.manifest.automationType).toBe("hybrid");
     expect(artifact.manifest.deliveryMode).toBe("native_uis");
+    expect(artifact.manifest.recommendation?.recommendedOutput).toBe("solution");
+    expect(artifact.manifest.testCases).toHaveLength(1);
     expect(artifact.manifest.resources.queues).toEqual(["InvoiceQueue"]);
     expect(artifact.manifest.resources.assets).toEqual(["Asset.ApiKey"]);
 
@@ -78,6 +113,8 @@ describe("UiPath solution builder", () => {
     expect(entryNames).toContain("InvoiceAutomation/DeveloperHandoffGuide.md");
     expect(entryNames).toContain("InvoiceAutomation/docs/SDD.md");
     expect(entryNames).toContain("InvoiceAutomation/docs/PDD.md");
+    expect(entryNames).toContain("InvoiceAutomation/docs/TestCases.md");
+    expect(entryNames).toContain("InvoiceAutomation/docs/TestCases.json");
     expect(entryNames).toContain("resources/solution_folder/package/InvoiceAutomation.json");
     expect(entryNames).toContain("resources/solution_folder/process/process/InvoiceAutomation.json");
     expect(entryNames).toContain("resources/solution_folder/queue/InvoiceQueue.json");
@@ -113,5 +150,9 @@ describe("UiPath solution builder", () => {
     expect(storageBucketResource.resource.type).toBe("orchestratorBucket");
     expect(storageBucketResource.resource.spec.name).toBe("Invoices");
     expect(storageBucketResource.resource.spec.type).toBe("Orchestrator");
+
+    const testCasesMarkdown = zip.readAsText("InvoiceAutomation/docs/TestCases.md");
+    expect(testCasesMarkdown).toContain("TC001 - Happy path");
+    expect(testCasesMarkdown).toContain("Queue item created");
   });
 });

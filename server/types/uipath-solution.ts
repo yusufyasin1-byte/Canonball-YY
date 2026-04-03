@@ -17,6 +17,40 @@ export interface UiPathSolutionResourceSummary {
   integrations: string[];
 }
 
+export type UiPathDeliveryTarget = "package" | "solution";
+
+export interface UiPathDeliveryRecommendation {
+  recommendedOutput: UiPathDeliveryTarget;
+  rationale: string[];
+  signals: {
+    automationType: "rpa" | "agent" | "hybrid";
+    workflowCount: number;
+    queueCount: number;
+    assetCount: number;
+    storageBucketCount: number;
+    actionCatalogCount: number;
+    integrationCount: number;
+    sharedResourceCount: number;
+  };
+}
+
+export interface UiPathTestCaseStep {
+  action: string;
+  expected: string;
+}
+
+export interface UiPathTestCase {
+  name: string;
+  description: string;
+  steps: UiPathTestCaseStep[];
+}
+
+export interface UiPathTestSet {
+  name: string;
+  description: string;
+  testCaseNames: string[];
+}
+
 export interface UiPathSolutionManifest {
   schemaVersion: "1.0";
   solutionName: string;
@@ -31,6 +65,9 @@ export interface UiPathSolutionManifest {
     solutionDeploySupported: "manual_or_cli";
     notes: string[];
   };
+  recommendation?: UiPathDeliveryRecommendation;
+  testCases?: UiPathTestCase[];
+  testSets?: UiPathTestSet[];
   components: UiPathSolutionComponent[];
   resources: UiPathSolutionResourceSummary;
 }

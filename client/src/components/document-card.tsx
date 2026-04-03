@@ -509,6 +509,30 @@ interface UiPathSolutionMeta {
   displayName: string;
   version: string;
   automationType: string;
+  recommendation?: {
+    recommendedOutput: "package" | "solution";
+    rationale: string[];
+    signals: {
+      automationType: string;
+      workflowCount: number;
+      queueCount: number;
+      assetCount: number;
+      storageBucketCount: number;
+      actionCatalogCount: number;
+      integrationCount: number;
+      sharedResourceCount: number;
+    };
+  } | null;
+  testCases?: Array<{
+    name: string;
+    description: string;
+    steps: Array<{ action: string; expected: string }>;
+  }>;
+  testSets?: Array<{
+    name: string;
+    description: string;
+    testCaseNames: string[];
+  }>;
   componentCount: number;
   resources: {
     queues: string[];
@@ -614,10 +638,12 @@ export function UiPathPackageCard({ packageData, ideaId, onDeployProgress, onDep
   const [dhgContent, setDhgContent] = useState<string | null>(null);
   const [dhgLoading, setDhgLoading] = useState(false);
   const [warningsExpanded, setWarningsExpanded] = useState(false);
+  const [testsExpanded, setTestsExpanded] = useState(false);
   const { toast } = useToast();
   const isFailed = status === "FAILED";
   const isFallbackReady = status === "FALLBACK_READY";
   const hasWarnings = (status === "READY_WITH_WARNINGS" || status === "FALLBACK_READY") && warnings && warnings.length > 0;
+  const recommendedOutput = artifactMeta?.solution?.recommendation?.recommendedOutput || "solution";
 
   const { data: orchestratorStatus } = useQuery<{ configured: boolean }>({
     queryKey: ["/api/settings/uipath/status"],
@@ -909,6 +935,49 @@ export function UiPathPackageCard({ packageData, ideaId, onDeployProgress, onDep
             <p className="text-[10px] text-muted-foreground">
               Deploy the solution with Studio Web or UiPath CLI. The underlying package remains available as a fallback artifact.
             </p>
+            {artifactMeta.solution.recommendation && (
+              <div className="text-[10px] text-muted-foreground space-y-1">
+                <p>
+                  Recommended output: <span className="font-medium text-foreground">{artifactMeta.solution.recommendation.recommendedOutput}</span>
+                </p>
+                {artifactMeta.solution.recommendation.rationale.map((reason, index) => (
+                  <p key={index}>• {reason}</p>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {artifactMeta?.solution && ((artifactMeta.solution.testCases?.length || 0) > 0 || (artifactMeta.solution.testSets?.length || 0) > 0) && (
+          <div>
+            <button
+              className="flex items-center gap-1 text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-1"
+              onClick={() => setTestsExpanded(!testsExpanded)}
+              data-testid="button-toggle-generated-tests"
+            >
+              {testsExpanded ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
+              Generated Test Cases ({artifactMeta.solution.testCases?.length || 0})
+            </button>
+            {testsExpanded && (
+              <div className="rounded-md border border-border/40 bg-muted/20 p-3 space-y-2">
+                {(artifactMeta.solution.testCases || []).map((testCase, index) => (
+                  <div key={index} className="space-y-1">
+                    <p className="text-[11px] font-medium text-foreground">{testCase.name}</p>
+                    <p className="text-[10px] text-muted-foreground">{testCase.description}</p>
+                  </div>
+                ))}
+                {(artifactMeta.solution.testSets || []).length > 0 && (
+                  <div className="pt-1 border-t border-border/40">
+                    <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Test Sets</p>
+                    {(artifactMeta.solution.testSets || []).map((testSet, index) => (
+                      <p key={index} className="text-[10px] text-muted-foreground mt-1">
+                        {testSet.name}: {testSet.testCaseNames.join(", ")}
+                      </p>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         )}
       </div>
@@ -961,19 +1030,21 @@ export function UiPathPackageCard({ packageData, ideaId, onDeployProgress, onDep
           <button
             onClick={async () => {
               try {
-                const res = await fetch(`/api/ideas/${ideaId}/download-uipath?format=solution`, { credentials: "include" });
+                const res = await fetch(`/api/ideas/${ideaId}/download-uipath`, { credentials: "include" });
                 if (!res.ok) {
                   const errBody = await res.json().catch(() => null);
                   if (errBody?.error === "PACKAGE_NOT_BUILT" || errBody?.error === "SOLUTION_BUNDLE_EMPTY") {
-                    throw new Error("Native .uis solution export has not been generated yet. Please generate the build first.");
+                    throw new Error("Recommended UiPath artifact has not been generated yet. Please generate the build first.");
                   }
-                  throw new Error(errBody?.message || "Failed to download UiPath native solution export");
+                  throw new Error(errBody?.message || "Failed to download recommended UiPath artifact");
                 }
                 const blob = await res.blob();
                 const url = URL.createObjectURL(blob);
                 const a = document.createElement("a");
                 a.href = url;
-                a.download = `${(packageData.projectName || "UiPathPackage").replace(/[^a-zA-Z0-9_-]/g, "_")}_solution.zip`;
+                a.download = recommendedOutput === "package"
+                  ? `${(packageData.projectName || "UiPathPackage").replace(/[^a-zA-Z0-9_-]/g, "_")}.nupkg`
+                  : `${(packageData.projectName || "UiPathPackage").replace(/[^a-zA-Z0-9_-]/g, "_")}_solution.uis`;
                 document.body.appendChild(a);
                 a.click();
                 document.body.removeChild(a);
@@ -984,15 +1055,15 @@ export function UiPathPackageCard({ packageData, ideaId, onDeployProgress, onDep
             }}
             disabled={isFailed}
             className="inline-flex items-center gap-1.5 px-4 py-2 rounded-md bg-primary hover:bg-primary/90 text-primary-foreground text-xs font-medium transition-colors flex-1 justify-center disabled:opacity-50 disabled:cursor-not-allowed"
-            data-testid="button-download-uipath-solution"
+            data-testid="button-download-uipath-recommended"
           >
             <Download className="h-3.5 w-3.5" />
-            Solution
+            {recommendedOutput === "package" ? "Recommended: Package" : "Recommended: Solution"}
           </button>
           <button
             onClick={async () => {
               try {
-                const res = await fetch(`/api/ideas/${ideaId}/download-uipath`, { credentials: "include" });
+                const res = await fetch(`/api/ideas/${ideaId}/download-uipath?format=package`, { credentials: "include" });
                 if (!res.ok) {
                   const errBody = await res.json().catch(() => null);
                   if (errBody?.error === "PACKAGE_NOT_BUILT") {
@@ -1004,7 +1075,7 @@ export function UiPathPackageCard({ packageData, ideaId, onDeployProgress, onDep
                 const url = URL.createObjectURL(blob);
                 const a = document.createElement("a");
                 a.href = url;
-                a.download = `${(packageData.projectName || "UiPathPackage").replace(/[^a-zA-Z0-9_-]/g, "_")}.zip`;
+                a.download = `${(packageData.projectName || "UiPathPackage").replace(/[^a-zA-Z0-9_-]/g, "_")}.nupkg`;
                 document.body.appendChild(a);
                 a.click();
                 document.body.removeChild(a);
@@ -1019,6 +1090,34 @@ export function UiPathPackageCard({ packageData, ideaId, onDeployProgress, onDep
           >
             <Download className="h-3.5 w-3.5" />
             Package
+          </button>
+          <button
+            onClick={async () => {
+              try {
+                const res = await fetch(`/api/ideas/${ideaId}/download-uipath?format=solution`, { credentials: "include" });
+                if (!res.ok) {
+                  const errBody = await res.json().catch(() => null);
+                  throw new Error(errBody?.message || "Failed to download UiPath solution");
+                }
+                const blob = await res.blob();
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement("a");
+                a.href = url;
+                a.download = `${(packageData.projectName || "UiPathPackage").replace(/[^a-zA-Z0-9_-]/g, "_")}_solution.uis`;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                URL.revokeObjectURL(url);
+              } catch (err: any) {
+                toast({ title: "Download failed", description: err.message, variant: "destructive" });
+              }
+            }}
+            disabled={isFailed}
+            className="inline-flex items-center gap-1.5 px-4 py-2 rounded-md bg-secondary hover:bg-secondary/90 text-secondary-foreground text-xs font-medium transition-colors flex-1 justify-center disabled:opacity-50 disabled:cursor-not-allowed"
+            data-testid="button-download-uipath-solution"
+          >
+            <Download className="h-3.5 w-3.5" />
+            Solution
           </button>
           <button
             onClick={async () => {

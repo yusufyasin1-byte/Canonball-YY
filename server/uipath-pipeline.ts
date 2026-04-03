@@ -42,7 +42,16 @@ import {
 import { classifyComplexity, estimateComplexityFromContext, type ComplexityTier, type ComplexityClassification } from "./complexity-classifier";
 import { recordPipelineHealth, computePipelineHealthFromResult } from "./pipeline-health";
 import { buildUiPathSolutionArtifact } from "./uipath-solution-builder";
-import type { UiPathSolutionArtifact } from "./types/uipath-solution";
+import {
+  extractUiPathTestDesign,
+  recommendUiPathDelivery,
+} from "./uipath-delivery-planner";
+import type {
+  UiPathDeliveryRecommendation,
+  UiPathSolutionArtifact,
+  UiPathTestCase,
+  UiPathTestSet,
+} from "./types/uipath-solution";
 
 export type { GenerationMode };
 export type { ComplexityTier, ComplexityClassification };
@@ -295,6 +304,9 @@ export interface PipelineOutcomeReport {
 export interface PipelineResult {
   packageBuffer: Buffer;
   solutionArtifact?: UiPathSolutionArtifact;
+  deliveryRecommendation?: UiPathDeliveryRecommendation;
+  testCases?: UiPathTestCase[];
+  testSets?: UiPathTestSet[];
   gaps: XamlGap[];
   usedPackages: string[];
   qualityGateResult?: QualityGateResult;
@@ -1381,6 +1393,13 @@ export async function compilePackageFromSpecs(
       analysisCount: dhgResult.analysisReports.length,
     });
 
+    const orchestratorArtifacts = enriched.internal?.orchestratorArtifacts || enriched.internal?.extractedArtifacts || {};
+    const deliveryRecommendation = recommendUiPathDelivery({
+      pkg: enriched,
+      orchestratorArtifacts,
+    });
+    const { testCases, testSets } = extractUiPathTestDesign(orchestratorArtifacts);
+
     tracker.start("solution_bundle", "Building native UiPath .uis solution export");
     const solutionArtifact = buildUiPathSolutionArtifact({
       pkg: enriched,
@@ -1390,6 +1409,9 @@ export async function compilePackageFromSpecs(
       dhgContent: dhgResult.dhgContent,
       ctx,
       version: ver,
+      deliveryRecommendation,
+      testCases,
+      testSets,
     });
     tracker.complete("solution_bundle", `Native UiPath .uis solution export built (${Math.round(solutionArtifact.buffer.length / 1024)}KB)`, {
       sizeBytes: solutionArtifact.buffer.length,
@@ -1439,6 +1461,9 @@ export async function compilePackageFromSpecs(
     const result: PipelineResult = {
       packageBuffer: finalPackageBuffer,
       solutionArtifact,
+      deliveryRecommendation,
+      testCases,
+      testSets,
       gaps: buildResult.gaps,
       usedPackages: buildResult.usedPackages,
       qualityGateResult: postCorrectionQualityGate || buildResult.qualityGateResult,

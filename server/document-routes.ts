@@ -752,18 +752,24 @@ export function registerDocumentRoutes(app: Express): void {
 
       const pipelineResult = getCachedPipelineResult(ideaId);
       const solutionManifest = pipelineResult?.solutionArtifact?.manifest;
+      const recommendation = solutionManifest?.recommendation || pipelineResult?.deliveryRecommendation || null;
+      const preferredFormat = recommendation?.recommendedOutput === "package" ? "package" : "solution";
 
       return res.json({
         projectName: pkg.projectName || "UiPathPackage",
         description: pkg.description || "",
         dependencies: pkg.dependencies || [],
         workflows: pkg.workflows || [],
+        preferredFormat,
         solution: solutionManifest ? {
           fileName: pipelineResult?.solutionArtifact?.fileName,
           solutionName: solutionManifest.solutionName,
           displayName: solutionManifest.displayName,
           version: solutionManifest.version,
           automationType: solutionManifest.automationType,
+          recommendation: solutionManifest.recommendation || pipelineResult?.deliveryRecommendation || null,
+          testCases: solutionManifest.testCases || pipelineResult?.testCases || [],
+          testSets: solutionManifest.testSets || pipelineResult?.testSets || [],
           componentCount: solutionManifest.components.length,
           components: solutionManifest.components,
           resources: solutionManifest.resources,
@@ -1224,7 +1230,12 @@ export function registerDocumentRoutes(app: Express): void {
       }
 
       const requestedFormat = String(req.query.format || "").toLowerCase();
-      if (requestedFormat === "solution") {
+      const recommendedFormat = pipelineResult.deliveryRecommendation?.recommendedOutput === "package" ? "package" : "solution";
+      const effectiveFormat = requestedFormat === "package" || requestedFormat === "solution"
+        ? requestedFormat
+        : recommendedFormat;
+
+      if (effectiveFormat === "solution") {
         if (!pipelineResult.solutionArtifact?.buffer || pipelineResult.solutionArtifact.buffer.length === 0) {
           return res.status(500).json({
             error: "SOLUTION_BUNDLE_EMPTY",

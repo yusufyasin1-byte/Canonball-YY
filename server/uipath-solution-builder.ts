@@ -5,12 +5,16 @@ import type { BuildResult } from "./package-assembler";
 import type { IdeaContext } from "./uipath-pipeline";
 import type { UiPathPackage } from "./types/uipath-package";
 import type {
+  UiPathDeliveryRecommendation,
   UiPathNativeSolutionProjectType,
   UiPathSolutionArtifact,
   UiPathSolutionComponent,
   UiPathSolutionManifest,
   UiPathSolutionResourceSummary,
+  UiPathTestCase,
+  UiPathTestSet,
 } from "./types/uipath-solution";
+import { renderUiPathTestCasesMarkdown } from "./uipath-delivery-planner";
 
 function sanitizeName(value: string): string {
   return (value || "UiPathSolution")
@@ -429,6 +433,9 @@ export function buildUiPathSolutionArtifact(params: {
   dhgContent?: string;
   ctx: IdeaContext;
   version: string;
+  deliveryRecommendation?: UiPathDeliveryRecommendation;
+  testCases?: UiPathTestCase[];
+  testSets?: UiPathTestSet[];
 }): UiPathSolutionArtifact {
   const {
     pkg,
@@ -437,6 +444,9 @@ export function buildUiPathSolutionArtifact(params: {
     dhgContent,
     ctx,
     version,
+    deliveryRecommendation,
+    testCases = [],
+    testSets = [],
   } = params;
 
   const projectFolder = normalizeFolderName(projectName);
@@ -485,6 +495,14 @@ export function buildUiPathSolutionArtifact(params: {
       description: "Latest Process Design Document used during generation",
     });
   }
+  if (testCases.length > 0 || testSets.length > 0) {
+    components.push({
+      type: "documentation",
+      name: "TestCases",
+      path: `${projectFolder}/docs/TestCases.md`,
+      description: "Generated validation scenarios derived from the use case artifacts",
+    });
+  }
 
   const queues = Array.isArray(orchestratorArtifacts?.queues) ? orchestratorArtifacts.queues : [];
   for (const queue of queues) {
@@ -521,12 +539,12 @@ export function buildUiPathSolutionArtifact(params: {
   }
 
   const resourceReferenceXaml = buildSolutionResourceReferencesXaml({
-    queueNames: queues.map((queue) => String(queue?.name || "")).filter(Boolean),
+    queueNames: queues.map((queue: any) => String(queue?.name || "")).filter(Boolean),
     textAssetNames: assets
-      .filter((asset) => mapAssetType(asset?.type) === "Text")
-      .map((asset) => String(asset?.name || ""))
+      .filter((asset: any) => mapAssetType(asset?.type) === "Text")
+      .map((asset: any) => String(asset?.name || ""))
       .filter(Boolean),
-    storageBucketNames: storageBuckets.map((bucket) => String(bucket?.name || "")).filter(Boolean),
+    storageBucketNames: storageBuckets.map((bucket: any) => String(bucket?.name || "")).filter(Boolean),
   });
 
   const manifest: UiPathSolutionManifest = {
@@ -546,6 +564,9 @@ export function buildUiPathSolutionArtifact(params: {
         "To appear under UiPath Solutions, deploy it through UiPath's solution upload/deploy/activate flow rather than the package upload API.",
       ],
     },
+    recommendation: deliveryRecommendation,
+    testCases,
+    testSets,
     components,
     resources,
   };
@@ -581,6 +602,16 @@ export function buildUiPathSolutionArtifact(params: {
   }
   if (ctx.pdd?.content) {
     zip.addFile(`${projectFolder}/docs/PDD.md`, Buffer.from(ctx.pdd.content, "utf8"));
+  }
+  if (testCases.length > 0 || testSets.length > 0) {
+    zip.addFile(
+      `${projectFolder}/docs/TestCases.md`,
+      Buffer.from(renderUiPathTestCasesMarkdown({ projectName, testCases, testSets }), "utf8"),
+    );
+    zip.addFile(
+      `${projectFolder}/docs/TestCases.json`,
+      Buffer.from(JSON.stringify({ testCases, testSets }, null, 2), "utf8"),
+    );
   }
 
   const resourceBase = resourceFileBase(projectName);

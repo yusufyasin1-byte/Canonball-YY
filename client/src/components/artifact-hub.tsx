@@ -259,12 +259,37 @@ interface UiPathPackageData {
   description: string;
   dependencies?: string[];
   workflows?: UiPathWorkflow[];
+  preferredFormat?: "package" | "solution";
   solution?: {
     fileName?: string;
     solutionName: string;
     displayName: string;
     version: string;
     automationType: string;
+    recommendation?: {
+      recommendedOutput: "package" | "solution";
+      rationale: string[];
+      signals: {
+        automationType: string;
+        workflowCount: number;
+        queueCount: number;
+        assetCount: number;
+        storageBucketCount: number;
+        actionCatalogCount: number;
+        integrationCount: number;
+        sharedResourceCount: number;
+      };
+    } | null;
+    testCases?: Array<{
+      name: string;
+      description: string;
+      steps: Array<{ action: string; expected: string }>;
+    }>;
+    testSets?: Array<{
+      name: string;
+      description: string;
+      testCaseNames: string[];
+    }>;
     componentCount: number;
     components: Array<{ type: string; name: string; path: string; description?: string }>;
     resources: {
@@ -292,6 +317,7 @@ function capDescription(text: string): string {
 
 function UiPathViewerModal({ open, onClose, ideaId }: { open: boolean; onClose: () => void; ideaId: string }) {
   const [expandedWf, setExpandedWf] = useState(true);
+  const [expandedTests, setExpandedTests] = useState(false);
   const [expandedWfItems, setExpandedWfItems] = useState<Set<number>>(new Set());
   const [descExpanded, setDescExpanded] = useState(false);
   const [descClamped, setDescClamped] = useState(false);
@@ -304,6 +330,7 @@ function UiPathViewerModal({ open, onClose, ideaId }: { open: boolean; onClose: 
   useEffect(() => {
     if (open) {
       setExpandedWfItems(new Set());
+      setExpandedTests(false);
       setDescExpanded(false);
       setDescClamped(false);
     }
@@ -390,6 +417,16 @@ function UiPathViewerModal({ open, onClose, ideaId }: { open: boolean; onClose: 
                     <Badge variant="outline" className="text-[9px]">Native .uis</Badge>
                   </div>
                   <div className="text-[10px] text-muted-foreground space-y-1">
+                    {packageData.solution.recommendation && (
+                      <>
+                        <p>
+                          Recommended output: <span className="font-medium text-foreground">{packageData.solution.recommendation.recommendedOutput}</span>
+                        </p>
+                        {packageData.solution.recommendation.rationale.map((reason, index) => (
+                          <p key={index}>• {reason}</p>
+                        ))}
+                      </>
+                    )}
                     <p>Use Studio Web or UiPath CLI to deploy the solution. The underlying package is included inside the bundle.</p>
                     {packageData.solution.resources.queues.length > 0 && (
                       <p>Queues: {packageData.solution.resources.queues.join(", ")}</p>
@@ -398,6 +435,39 @@ function UiPathViewerModal({ open, onClose, ideaId }: { open: boolean; onClose: 
                       <p>Assets: {packageData.solution.resources.assets.join(", ")}</p>
                     )}
                   </div>
+                </div>
+              )}
+
+              {packageData.solution && ((packageData.solution.testCases?.length || 0) > 0 || (packageData.solution.testSets?.length || 0) > 0) && (
+                <div>
+                  <button
+                    className="flex items-center gap-1 text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-1.5"
+                    onClick={() => setExpandedTests(!expandedTests)}
+                    data-testid="button-hub-toggle-test-cases"
+                  >
+                    {expandedTests ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
+                    Test Cases ({packageData.solution.testCases?.length || 0})
+                  </button>
+                  {expandedTests && (
+                    <div className="space-y-2 rounded-md border border-border/40 bg-muted/20 p-3">
+                      {(packageData.solution.testCases || []).map((testCase, index) => (
+                        <div key={index} className="space-y-1">
+                          <p className="text-[11px] font-medium text-foreground">{testCase.name}</p>
+                          <p className="text-[10px] text-muted-foreground">{testCase.description}</p>
+                        </div>
+                      ))}
+                      {(packageData.solution.testSets || []).length > 0 && (
+                        <div className="pt-1 border-t border-border/40">
+                          <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Test Sets</p>
+                          {(packageData.solution.testSets || []).map((testSet, index) => (
+                            <p key={index} className="text-[10px] text-muted-foreground mt-1">
+                              {testSet.name}: {testSet.testCaseNames.join(", ")}
+                            </p>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
               )}
 
@@ -533,16 +603,21 @@ export function ArtifactHub({ ideaId, ideaTitle }: ArtifactHubProps) {
   async function downloadArtifact(type: string) {
     try {
       if (type === "uipath") {
-        const res = await fetch(`/api/ideas/${ideaId}/download-uipath?format=solution`, { credentials: "include" });
+        const metaRes = await fetch(`/api/ideas/${ideaId}/uipath-artifact-meta`, { credentials: "include" });
+        const meta = metaRes.ok ? await metaRes.json() : null;
+        const preferredFormat = meta?.preferredFormat === "package" ? "package" : "solution";
+        const res = await fetch(`/api/ideas/${ideaId}/download-uipath`, { credentials: "include" });
         if (!res.ok) {
           const errBody = await res.json().catch(() => null);
-          throw new Error(errBody?.message || "Failed to download UiPath native solution export");
+          throw new Error(errBody?.message || "Failed to download UiPath artifact");
         }
         const blob = await res.blob();
         const url = URL.createObjectURL(blob);
         const a = document.createElement("a");
         a.href = url;
-        a.download = `${ideaTitle.replace(/[^a-zA-Z0-9_-]/g, "_")}_solution.zip`;
+        a.download = preferredFormat === "package"
+          ? `${ideaTitle.replace(/[^a-zA-Z0-9_-]/g, "_")}.nupkg`
+          : `${ideaTitle.replace(/[^a-zA-Z0-9_-]/g, "_")}_solution.uis`;
         document.body.appendChild(a);
         a.click();
         document.body.removeChild(a);
@@ -603,13 +678,18 @@ export function ArtifactHub({ ideaId, ideaTitle }: ArtifactHubProps) {
       if (hasUipath) {
         await new Promise(resolve => setTimeout(resolve, 500));
         try {
-          const res = await fetch(`/api/ideas/${ideaId}/download-uipath?format=solution`, { credentials: "include" });
+          const metaRes = await fetch(`/api/ideas/${ideaId}/uipath-artifact-meta`, { credentials: "include" });
+          const meta = metaRes.ok ? await metaRes.json() : null;
+          const preferredFormat = meta?.preferredFormat === "package" ? "package" : "solution";
+          const res = await fetch(`/api/ideas/${ideaId}/download-uipath`, { credentials: "include" });
           if (!res.ok) throw new Error("UiPath solution download failed");
           const blob = await res.blob();
           const url = URL.createObjectURL(blob);
           const a = document.createElement("a");
           a.href = url;
-          a.download = `${ideaTitle.replace(/[^a-zA-Z0-9_-]/g, "_")}_solution.zip`;
+          a.download = preferredFormat === "package"
+            ? `${ideaTitle.replace(/[^a-zA-Z0-9_-]/g, "_")}.nupkg`
+            : `${ideaTitle.replace(/[^a-zA-Z0-9_-]/g, "_")}_solution.uis`;
           document.body.appendChild(a);
           a.click();
           document.body.removeChild(a);
