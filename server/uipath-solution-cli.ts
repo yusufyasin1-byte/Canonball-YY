@@ -67,6 +67,31 @@ export type UiPathSolutionPackageRef = {
   packagePath: string;
 };
 
+function resolveUiPathSolutionPackInput(projectPath: string): { packTargetPath: string; packageName: string } {
+  const resolved = path.resolve(projectPath);
+  const stat = fs.existsSync(resolved) ? fs.statSync(resolved) : null;
+
+  if (stat?.isFile()) {
+    if (path.basename(resolved).toLowerCase() !== "solution.uipx") {
+      throw new Error(`Expected a Solution.uipx file for native solution pack, got ${resolved}`);
+    }
+    return {
+      packTargetPath: resolved,
+      packageName: path.basename(path.dirname(resolved)),
+    };
+  }
+
+  const solutionUipxPath = path.join(resolved, "Solution.uipx");
+  if (fs.existsSync(solutionUipxPath)) {
+    return {
+      packTargetPath: solutionUipxPath,
+      packageName: path.basename(resolved),
+    };
+  }
+
+  throw new Error(`UiPath Solution.uipx not found in ${resolved}`);
+}
+
 export type UiPathSolutionDeployOptions = {
   packageName: string;
   version: string;
@@ -354,9 +379,7 @@ export async function runUiPathCli(args: string[], options?: { dotnetPath?: stri
 }
 
 export async function packUiPathNativeSolution(options: UiPathSolutionPackOptions): Promise<UiPathSolutionPackageRef & { stdout: string; stderr: string; }> {
-  if (!fs.existsSync(path.join(options.projectPath, "project.json"))) {
-    throw new Error(`UiPath project.json not found in ${options.projectPath}`);
-  }
+  const resolvedInput = resolveUiPathSolutionPackInput(options.projectPath);
 
   const cliDllPath = options.cliDllPath || getDefaultUiPathCliDllPath();
   const outputDir = path.resolve(options.outputDir);
@@ -369,7 +392,7 @@ export async function packUiPathNativeSolution(options: UiPathSolutionPackOption
     cliDllPath,
     "solution",
     "pack",
-    path.resolve(options.projectPath),
+    resolvedInput.packTargetPath,
     "-o", outputDir,
     "-v", options.version,
     "--nugetConfigFilePath", nugetConfigPath,
@@ -383,7 +406,7 @@ export async function packUiPathNativeSolution(options: UiPathSolutionPackOption
 
   const packagePath = findNewestZip(outputDir);
   return {
-    packageName: inferUiPathSolutionPackageName(options.projectPath),
+    packageName: resolvedInput.packageName,
     version: options.version,
     packagePath,
     stdout: result.stdout,

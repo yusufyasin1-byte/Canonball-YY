@@ -28,6 +28,22 @@ export type AnalysisRuleSummary = {
   autoFixedCount: number;
 };
 
+export type AnalysisProfile = "fast" | "strict";
+
+export type WorkflowAnalysisAggregate = {
+  totalFiles: number;
+  totalChecked: number;
+  totalPassed: number;
+  totalAutoFixed: number;
+  totalRemaining: number;
+  remainingBySeverity: {
+    error: number;
+    warning: number;
+    info: number;
+  };
+  remainingViolations: Array<AnalysisViolation & { fileName?: string }>;
+};
+
 const VARIABLE_TYPE_PREFIXES: Record<string, string> = {
   "x:String": "str",
   "x:Int32": "int",
@@ -343,6 +359,89 @@ function checkUsage(xaml: string): AnalysisViolation[] {
       message: `If nesting depth is ${maxNestDepth} (max recommended: 3) — consider refactoring into separate workflows`,
       autoFixed: false,
     });
+  }
+
+  return violations;
+}
+
+function checkMaintainability(xaml: string): AnalysisViolation[] {
+  const violations: AnalysisViolation[] = [];
+
+  const activityMatches = xaml.match(/<(?:ui:|sap:|Sequence\b|If\b|TryCatch\b|Switch\b|FlowDecision\b|FlowStep\b|Assign\b|Delay\b|WriteLine\b|InvokeMethod\b|InvokeWorkflowFile\b)/g) || [];
+  if (activityMatches.length > 40) {
+    violations.push({
+      ruleId: "ST-MNT-001",
+      ruleName: "Large workflow body",
+      category: "maintainability",
+      severity: "warning",
+      message: `Workflow contains ${activityMatches.length} activities - consider decomposing into smaller workflows`,
+      autoFixed: false,
+    });
+  }
+
+  const commentMatches = xaml.match(/<(Annotation\.AnnotationText|sap2010:WorkflowViewState\.HintSize|TextExpression\.ReferencesForImplementation)/g) || [];
+  if (activityMatches.length > 15 && commentMatches.length === 0) {
+    violations.push({
+      ruleId: "ST-MNT-002",
+      ruleName: "Low workflow annotation coverage",
+      category: "maintainability",
+      severity: "info",
+      message: "Workflow has substantial activity count but no annotation-style metadata was detected",
+      autoFixed: false,
+    });
+  }
+
+  return violations;
+}
+
+function checkReliability(xaml: string): AnalysisViolation[] {
+  const violations: AnalysisViolation[] = [];
+
+  const hasTryCatch = /<TryCatch\b/i.test(xaml);
+  const hasRetryScope = /<ui:RetryScope\b/i.test(xaml);
+  const hasGlobalCatch = /<Catch\s+/i.test(xaml);
+
+  if (!hasTryCatch && !hasGlobalCatch) {
+    violations.push({
+      ruleId: "ST-REL-001",
+      ruleName: "Missing exception handling block",
+      category: "reliability",
+      severity: "warning",
+      message: "Workflow does not appear to contain TryCatch/Catch exception handling",
+      autoFixed: false,
+    });
+  }
+
+  const uiInteractionCount = (xaml.match(/<(ui:Click|ui:TypeInto|ui:FindElement|ui:ElementExists|ui:GetText|ui:OpenBrowser|ui:AttachBrowser|ui:UseApplicationBrowser)\b/g) || []).length;
+  if (uiInteractionCount >= 3 && !hasRetryScope) {
+    violations.push({
+      ruleId: "ST-REL-002",
+      ruleName: "UI interactions without retry pattern",
+      category: "reliability",
+      severity: "info",
+      message: "Workflow has multiple UI interactions but no RetryScope was detected",
+      autoFixed: false,
+    });
+  }
+
+  return violations;
+}
+
+function collectViolations(xaml: string, profile: AnalysisProfile): AnalysisViolation[] {
+  const violations: AnalysisViolation[] = [
+    ...checkNaming(xaml),
+    ...checkBestPractices(xaml),
+    ...checkUsage(xaml),
+    ...checkSecurity(xaml),
+    ...checkGovernancePolicies(xaml),
+    ...checkArgumentCompleteness(xaml),
+  ];
+
+  if (profile === "strict") {
+    violations.push(
+      ...checkMaintainability(xaml),
+      ...checkReliability(xaml),
+    );
   }
 
   return violations;
@@ -687,6 +786,10 @@ const ALL_RULES: Array<{ ruleId: string; ruleName: string; category: string }> =
   { ruleId: "ST-ARG-001", ruleName: "Invalid bare Argument tag in Catch", category: "usage" },
   { ruleId: "ST-ARG-002", ruleName: "Missing declaration for invoked argument", category: "usage" },
   { ruleId: "ST-ARG-003", ruleName: "Undeclared variable in expression", category: "usage" },
+  { ruleId: "ST-MNT-001", ruleName: "Large workflow body", category: "maintainability" },
+  { ruleId: "ST-MNT-002", ruleName: "Low workflow annotation coverage", category: "maintainability" },
+  { ruleId: "ST-REL-001", ruleName: "Missing exception handling block", category: "reliability" },
+  { ruleId: "ST-REL-002", ruleName: "UI interactions without retry pattern", category: "reliability" },
 ];
 
 let _governancePolicies: GovernancePolicy[] = [];
@@ -842,15 +945,8 @@ function buildRuleSummaries(violations: AnalysisViolation[]): AnalysisRuleSummar
   return summaries;
 }
 
-export function analyzeXaml(xamlContent: string): AnalysisReport {
-  const violations: AnalysisViolation[] = [
-    ...checkNaming(xamlContent),
-    ...checkBestPractices(xamlContent),
-    ...checkUsage(xamlContent),
-    ...checkSecurity(xamlContent),
-    ...checkGovernancePolicies(xamlContent),
-    ...checkArgumentCompleteness(xamlContent),
-  ];
+export function analyzeXaml(xamlContent: string, profile: AnalysisProfile = "fast"): AnalysisReport {
+  const violations = collectViolations(xamlContent, profile);
 
   const ruleSummaries = buildRuleSummaries(violations);
 
@@ -880,7 +976,7 @@ function deduplicateVariableDeclarations(xaml: string): string {
   });
 }
 
-export function analyzeAndFix(xamlContent: string): { fixed: string; report: AnalysisReport } {
+export function analyzeAndFix(xamlContent: string, profile: AnalysisProfile = "fast"): { fixed: string; report: AnalysisReport } {
   const allViolations: AnalysisViolation[] = [];
 
   const bareArgResult = autoFixBareArguments(xamlContent);
@@ -901,14 +997,7 @@ export function analyzeAndFix(xamlContent: string): { fixed: string; report: Ana
   fixed = logResult.fixed;
   allViolations.push(...logResult.fixes);
 
-  const postFixViolations = [
-    ...checkNaming(fixed),
-    ...checkBestPractices(fixed),
-    ...checkUsage(fixed),
-    ...checkSecurity(fixed),
-    ...checkGovernancePolicies(fixed),
-    ...checkArgumentCompleteness(fixed),
-  ];
+  const postFixViolations = collectViolations(fixed, profile);
   allViolations.push(...postFixViolations);
 
   const ruleSummaries = buildRuleSummaries(allViolations);
@@ -961,6 +1050,67 @@ export function formatAnalysisReportMarkdown(report: AnalysisReport): string {
       md += `- **${v.ruleId}**: ${v.message}\n`;
     }
     md += `\n`;
+  }
+
+  return md;
+}
+
+export function aggregateAnalysisReports(
+  reports: Array<{ fileName: string; report: AnalysisReport }>,
+): WorkflowAnalysisAggregate {
+  const remainingViolations = reports.flatMap(({ fileName, report }) =>
+    report.violations
+      .filter((violation) => !violation.autoFixed)
+      .map((violation) => ({ ...violation, fileName })),
+  );
+
+  return {
+    totalFiles: reports.length,
+    totalChecked: reports.reduce((sum, entry) => sum + entry.report.totalChecked, 0),
+    totalPassed: reports.reduce((sum, entry) => sum + entry.report.totalPassed, 0),
+    totalAutoFixed: reports.reduce((sum, entry) => sum + entry.report.totalAutoFixed, 0),
+    totalRemaining: reports.reduce((sum, entry) => sum + entry.report.totalRemaining, 0),
+    remainingBySeverity: {
+      error: remainingViolations.filter((v) => v.severity === "error").length,
+      warning: remainingViolations.filter((v) => v.severity === "warning").length,
+      info: remainingViolations.filter((v) => v.severity === "info").length,
+    },
+    remainingViolations,
+  };
+}
+
+export function shouldBlockDeploymentFromAnalysis(
+  reports: Array<{ fileName: string; report: AnalysisReport }>,
+): boolean {
+  const aggregate = aggregateAnalysisReports(reports);
+  return aggregate.remainingBySeverity.error > 0;
+}
+
+export function formatDeploymentGateMarkdown(
+  reports: Array<{ fileName: string; report: AnalysisReport }>,
+): string {
+  const aggregate = aggregateAnalysisReports(reports);
+  let md = `### Workflow Analyzer Deployment Gate\n\n`;
+  md += `Analyzed ${aggregate.totalFiles} workflow file(s). `;
+  md += `Remaining violations: ${aggregate.totalRemaining} `;
+  md += `(errors: ${aggregate.remainingBySeverity.error}, warnings: ${aggregate.remainingBySeverity.warning}, info: ${aggregate.remainingBySeverity.info}).\n\n`;
+
+  if (aggregate.remainingViolations.length === 0) {
+    md += `All remaining Workflow Analyzer issues were auto-corrected or cleared. Deployment is allowed.\n`;
+    return md;
+  }
+
+  md += `| Severity | Rule ID | File | Message | Location |\n`;
+  md += `|---|---|---|---|---|\n`;
+  for (const violation of aggregate.remainingViolations) {
+    md += `| ${violation.severity} | ${violation.ruleId} | ${violation.fileName || "—"} | ${violation.message} | ${violation.location || "—"} |\n`;
+  }
+
+  md += `\n`;
+  if (aggregate.remainingBySeverity.error > 0) {
+    md += `Deployment should be blocked because unresolved error-level Workflow Analyzer violations remain.\n`;
+  } else {
+    md += `Deployment may proceed because only warning/info-level Workflow Analyzer violations remain.\n`;
   }
 
   return md;

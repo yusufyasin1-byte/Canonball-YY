@@ -34,6 +34,12 @@ function getTokenEndpoint(): string {
   return metadataService.getTokenEndpoint();
 }
 
+function ensureMetadataLoaded(): void {
+  if (!metadataService.isIntegrationLoaded()) {
+    metadataService.load();
+  }
+}
+
 function getResourceScopesFromMetadata(resource: ResourceType): string {
   const serviceType = (TOKEN_RESOURCE_TO_SERVICE[resource] || resource) as ServiceResourceType;
   return metadataService.getMinimalScopesForServiceString(serviceType);
@@ -95,8 +101,31 @@ function maskClientId(clientId: string): string {
 }
 
 async function loadConfig(): Promise<UiPathAuthConfig | null> {
+  ensureMetadataLoaded();
   const now = Date.now();
   if (cachedConfig && now - configLoadedAt < CONFIG_TTL_MS) {
+    return cachedConfig;
+  }
+
+  const envClientId = process.env.UIPATH_CLIENT_ID;
+  const envClientSecret = process.env.UIPATH_CLIENT_SECRET;
+  const envOrgName = process.env.UIPATH_ORGANIZATION_ID;
+  const envTenantName = process.env.UIPATH_TENANT_NAME;
+  const envFolderId = process.env.UIPATH_FOLDER_ID;
+  const envFolderName = process.env.UIPATH_FOLDER_NAME;
+  const envScopes = process.env.UIPATH_SCOPES?.trim();
+
+  if (envClientId && envClientSecret && envOrgName && envTenantName) {
+    cachedConfig = {
+      orgName: envOrgName,
+      tenantName: envTenantName,
+      clientId: envClientId,
+      clientSecret: envClientSecret,
+      scopes: envScopes || getDefaultOrScopes(),
+      folderId: envFolderId,
+      folderName: envFolderName,
+    };
+    configLoadedAt = now;
     return cachedConfig;
   }
 
@@ -138,25 +167,6 @@ async function loadConfig(): Promise<UiPathAuthConfig | null> {
   const folderName = map.get("uipath_folder_name") || undefined;
 
   if (!orgName || !tenantName || !clientId || !clientSecret) {
-    const envClientId = process.env.UIPATH_CLIENT_ID;
-    const envClientSecret = process.env.UIPATH_CLIENT_SECRET;
-    const envOrgName = process.env.UIPATH_ORGANIZATION_ID;
-    const envTenantName = process.env.UIPATH_TENANT_NAME;
-    const envFolderId = process.env.UIPATH_FOLDER_ID;
-    const envScopes = process.env.UIPATH_SCOPES?.trim();
-
-    if (envClientId && envClientSecret && envOrgName && envTenantName) {
-      cachedConfig = {
-        orgName: envOrgName,
-        tenantName: envTenantName,
-        clientId: envClientId,
-        clientSecret: envClientSecret,
-        scopes: envScopes || getDefaultOrScopes(),
-        folderId: envFolderId,
-      };
-      configLoadedAt = now;
-      return cachedConfig;
-    }
     cachedConfig = null;
     return null;
   }
@@ -508,8 +518,15 @@ async function getResourceToken(resource: ResourceType): Promise<string> {
 
   if (resource !== "OR" && resource !== "PIMS") {
     const serviceType = (TOKEN_RESOURCE_TO_SERVICE[resource] || resource) as ServiceResourceType;
-    if (!metadataService.hasOidcScopeFamily(serviceType)) {
-      throw new UiPathAuthError(`No OIDC scope family for ${resource} — dedicated token acquisition is not available`);
+    const hasOidcScopeFamily = metadataService.hasOidcScopeFamily(serviceType);
+    const hasDocumentedOrConfiguredScopes = metadataService
+      .getScopeCandidatesForService(serviceType, config.scopes)
+      .some((candidate) => candidate.scopes.length > 0);
+    if (!hasOidcScopeFamily && !hasDocumentedOrConfiguredScopes) {
+      throw new UiPathAuthError(`No OIDC scope family for ${resource} and no documented/configured scope candidates were found`);
+    }
+    if (!hasOidcScopeFamily && hasDocumentedOrConfiguredScopes) {
+      console.log(`[UiPath Auth] ${resource} not in OIDC discovery — attempting token acquisition with documented/configured scopes`);
     }
   }
   if (resource === "PIMS" && !metadataService.hasOidcScopeFamily("PIMS" as ServiceResourceType)) {

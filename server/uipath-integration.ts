@@ -1652,7 +1652,7 @@ async function probeAllServices(): Promise<UnifiedProbeResult> {
     }
 
     const orchEntry = taxonomyByFlag.get("orchestrator");
-    const orchProbePath = orchEntry!.probeConfig!.probePath;
+    const orchProbePath = orchEntry?.probeConfig?.probePath || "/odata/Folders?$top=1";
     const orchRes = await fetch(`${orchBase}${orchProbePath}`, { headers: hdrs });
     if (!orchRes.ok) {
       const result: UnifiedProbeResult = {

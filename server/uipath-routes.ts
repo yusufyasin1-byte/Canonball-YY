@@ -1,5 +1,9 @@
 import type { Express, Request, Response } from "express";
 import type { ParsedQs } from "qs";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import AdmZip from "adm-zip";
 import { getUiPathConfig, getAccessToken, saveUiPathConfig, testUiPathConnection, pushToUiPath, getLastTestedAt, fetchUiPathFolders, saveUiPathFolder, createProcess, listMachines, listRobots, listProcesses, startJob, getJobStatus, verifyUiPathScopes, probeUiPathScopes, autoDetectUiPathScopes, clearProbeCache, discoverIntegrationService, clearIntegrationServiceCache, discoverGovernancePolicies, discoverAttendedRobots, discoverStudioProjects, QualityGateError } from "./uipath-integration";
 import { parseArtifactsFromSDD, extractArtifactsWithLLM, deployAllArtifacts, formatDeploymentReport } from "./uipath-deploy";
 import { getPreviousManifest, reconcileArtifacts, saveManifest, formatReconciliationSummary } from "./artifact-reconciliation";
@@ -7,6 +11,7 @@ import { documentStorage } from "./document-storage";
 import { chatStorage } from "./replit_integrations/chat/storage";
 import { storage } from "./storage";
 import { findUiPathMessage, parseUiPathPackage, generateUiPathPackage, computeVersion, getCachedPipelineResult, runBuildPipeline, type PipelineProgressEvent } from "./uipath-pipeline";
+import { aggregateAnalysisReports, analyzeAndFix, formatDeploymentGateMarkdown, shouldBlockDeploymentFromAnalysis } from "./workflow-analyzer";
 import * as auth from "./uipath-auth";
 import { metadataService, ORCHESTRATOR_DIAGNOSTIC_ENTITIES } from "./catalog/metadata-service";
 import * as orch from "./orchestrator-client";
@@ -23,6 +28,14 @@ import {
   getObserverRunEvents,
   type ObserverRunState,
 } from "./uipath-run-manager";
+import {
+  activateUiPathNativeSolution,
+  DEFAULT_UIPATH_SOLUTION_SCOPES,
+  deployUiPathNativeSolution,
+  packUiPathNativeSolution,
+  uploadUiPathNativeSolutionPackage,
+  validateUiPathSolutionFolderResources,
+} from "./uipath-solution-cli";
 
 function extractOrgSlug(input: string): string {
   let val = input.trim();
@@ -31,6 +44,34 @@ function extractOrgSlug(input: string): string {
   val = val.replace(/\/+$/, "");
   val = val.split("/")[0];
   return val.trim();
+}
+
+function getWorkflowAnalyzerGateFailure(prebuiltResult: any): {
+  blocked: boolean;
+  summary?: string;
+  aggregate?: ReturnType<typeof aggregateAnalysisReports>;
+} {
+  const sourceEntries = Array.isArray(prebuiltResult?.xamlEntries) ? prebuiltResult.xamlEntries : [];
+  const analysisReports = sourceEntries.length > 0
+    ? sourceEntries.map((entry: { name: string; content: string }) => ({
+        fileName: entry.name,
+        report: analyzeAndFix(entry.content, "strict").report,
+      }))
+    : Array.isArray(prebuiltResult?.analysisReports) ? prebuiltResult.analysisReports : [];
+  if (analysisReports.length === 0) {
+    return { blocked: false };
+  }
+
+  const aggregate = aggregateAnalysisReports(analysisReports);
+  if (!shouldBlockDeploymentFromAnalysis(analysisReports)) {
+    return { blocked: false, aggregate };
+  }
+
+  return {
+    blocked: true,
+    aggregate,
+    summary: formatDeploymentGateMarkdown(analysisReports),
+  };
 }
 
 let migrationDone = false;
@@ -114,6 +155,63 @@ function optionalQuery(value: QueryLike): string | undefined {
 function parseIntegerParam(value: ParamLike): number {
   const normalized = firstString(value);
   return Number.parseInt(normalized ?? "", 10);
+}
+
+function sanitizeUseCaseName(value: string): string {
+  return (value || "")
+    .replace(/[_-]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function titleCaseWords(value: string): string {
+  return sanitizeUseCaseName(value)
+    .split(" ")
+    .filter(Boolean)
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(" ");
+}
+
+function mergeUiPathScopes(...scopeSets: Array<string | undefined>): string {
+  const seen = new Set<string>();
+  const ordered: string[] = [];
+  for (const scopeSet of scopeSets) {
+    for (const scope of String(scopeSet || "").split(/\s+/).filter(Boolean)) {
+      if (!seen.has(scope)) {
+        seen.add(scope);
+        ordered.push(scope);
+      }
+    }
+  }
+  return ordered.join(" ");
+}
+
+function extractTestManagerArtifacts(artifacts: any): {
+  testCases?: any[];
+  testDataQueues?: any[];
+  requirements?: any[];
+  testSets?: any[];
+} {
+  return {
+    ...(Array.isArray(artifacts?.testCases) && artifacts.testCases.length > 0 ? { testCases: artifacts.testCases } : {}),
+    ...(Array.isArray(artifacts?.testDataQueues) && artifacts.testDataQueues.length > 0 ? { testDataQueues: artifacts.testDataQueues } : {}),
+    ...(Array.isArray(artifacts?.requirements) && artifacts.requirements.length > 0 ? { requirements: artifacts.requirements } : {}),
+    ...(Array.isArray(artifacts?.testSets) && artifacts.testSets.length > 0 ? { testSets: artifacts.testSets } : {}),
+  };
+}
+
+function hasTestManagerArtifacts(artifacts: {
+  testCases?: any[];
+  testDataQueues?: any[];
+  requirements?: any[];
+  testSets?: any[];
+}): boolean {
+  return (
+    (artifacts.testCases?.length || 0) > 0 ||
+    (artifacts.testDataQueues?.length || 0) > 0 ||
+    (artifacts.requirements?.length || 0) > 0 ||
+    (artifacts.testSets?.length || 0) > 0
+  );
 }
 
 export function registerUiPathRoutes(app: Express): void {
@@ -636,9 +734,10 @@ export function registerUiPathRoutes(app: Express): void {
             gaps: cachedPipeline.gaps,
             usedPackages: cachedPipeline.usedPackages,
             qualityGateResult: cachedPipeline.qualityGateResult,
-          xamlEntries: cachedPipeline.xamlEntries,
-          dependencyMap: cachedPipeline.dependencyMap,
-          archiveManifest: cachedPipeline.archiveManifest,
+            xamlEntries: cachedPipeline.xamlEntries,
+            dependencyMap: cachedPipeline.dependencyMap,
+            archiveManifest: cachedPipeline.archiveManifest,
+            analysisReports: cachedPipeline.analysisReports,
             usedFallbackStubs: cachedPipeline.usedFallbackStubs,
             generationMode: cachedPipeline.generationMode,
             referencedMLSkillNames: cachedPipeline.referencedMLSkillNames || [],
@@ -660,6 +759,7 @@ export function registerUiPathRoutes(app: Express): void {
             xamlEntries: pipelineResult.xamlEntries,
             dependencyMap: pipelineResult.dependencyMap,
             archiveManifest: pipelineResult.archiveManifest,
+            analysisReports: pipelineResult.analysisReports,
             usedFallbackStubs: pipelineResult.usedFallbackStubs,
             generationMode: pipelineResult.generationMode,
             referencedMLSkillNames: pipelineResult.referencedMLSkillNames || [],
@@ -681,6 +781,163 @@ export function registerUiPathRoutes(app: Express): void {
             return res.end();
           }
           throw err;
+        }
+      }
+
+      const analyzerGate = getWorkflowAnalyzerGateFailure(prebuiltResult);
+      if (analyzerGate.blocked) {
+        sendEvent({
+          deployComplete: true,
+          success: false,
+          result: {
+            success: false,
+            message: "Deployment blocked by Workflow Analyzer",
+            workflowAnalyzerGate: {
+              summary: analyzerGate.summary,
+              aggregate: analyzerGate.aggregate,
+            },
+          },
+        });
+        clearInterval(heartbeat);
+        return res.end();
+      }
+
+      const deliveryRecommendation = cachedPipeline?.deliveryRecommendation;
+      const shouldDeployAsSolution = deliveryRecommendation?.recommendedOutput === "solution" && !!cachedPipeline?.solutionArtifact?.buffer;
+
+      if (shouldDeployAsSolution && cachedPipeline?.solutionArtifact?.buffer) {
+        const config = await getUiPathConfig();
+        if (!config) {
+          sendEvent({ deployComplete: true, success: false, result: { success: false, message: "UiPath Orchestrator is not configured." } });
+          clearInterval(heartbeat);
+          return res.end();
+        }
+
+        const versionMatch = cachedPipeline.solutionArtifact.fileName.match(/\.(\d+\.\d+\.[^.]*)\.uis$/);
+        const version = versionMatch?.[1] || computeVersion();
+        const useCaseName = titleCaseWords(
+          idea.title
+          || pkg.projectName
+          || cachedPipeline.solutionArtifact.manifest.displayName
+          || "Automation",
+        );
+        const deploymentParentFolder = config.folderName || "";
+        const folderName = `${useCaseName} Solutions`;
+        const deploymentName = useCaseName;
+        const applicationScope = mergeUiPathScopes(config.scopes, DEFAULT_UIPATH_SOLUTION_SCOPES, "OR.Execution");
+        const auth = {
+          organizationName: extractOrgSlug(config.orgName),
+          tenantName: config.tenantName,
+          applicationId: config.clientId,
+          applicationSecret: config.clientSecret,
+          applicationScope,
+          orchestratorUrl: "https://cloud.uipath.com/",
+        };
+
+        const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "cb2-solution-deploy-"));
+        const workspaceDir = path.join(tempRoot, "workspace");
+        const packedDir = path.join(tempRoot, "packed");
+        fs.mkdirSync(workspaceDir, { recursive: true });
+        fs.mkdirSync(packedDir, { recursive: true });
+
+        try {
+          sendEvent({ deployStatus: "Preparing native UiPath solution workspace..." });
+          const zip = new AdmZip(cachedPipeline.solutionArtifact.buffer);
+          zip.extractAllTo(workspaceDir, true);
+
+          const solutionUipxPath = path.join(workspaceDir, "Solution.uipx");
+          if (!fs.existsSync(solutionUipxPath)) {
+            throw new Error("Generated native .uis is missing Solution.uipx.");
+          }
+
+          sendEvent({ deployStatus: "Packing native UiPath solution..." });
+          const packed = await packUiPathNativeSolution({
+            projectPath: solutionUipxPath,
+            version,
+            outputDir: packedDir,
+            traceLevel: "Information",
+          });
+
+          sendEvent({ deployStatus: "Uploading solution package to UiPath Solutions..." });
+          const upload = await uploadUiPathNativeSolutionPackage(auth, packed.packagePath, { traceLevel: "Information" });
+
+          sendEvent({ deployStatus: `Deploying solution "${deploymentName}"...` });
+          const deploy = await deployUiPathNativeSolution(auth, {
+            packageName: packed.packageName,
+            version,
+            deploymentName,
+            folderName,
+            parentFolderName: deploymentParentFolder || undefined,
+            traceLevel: "Information",
+          });
+
+          sendEvent({ deployStatus: `Activating solution "${deploymentName}"...` });
+          const activate = await activateUiPathNativeSolution(auth, deploymentName, version, { traceLevel: "Information" });
+
+          sendEvent({ deployStatus: `Validating deployed resources in "${folderName}"...` });
+          const validation = await validateUiPathSolutionFolderResources(auth, {
+            folderName,
+            processes: cachedPipeline.solutionArtifact.manifest.resources.processes.length > 0
+              ? cachedPipeline.solutionArtifact.manifest.resources.processes
+              : [pkg.projectName],
+            assets: cachedPipeline.solutionArtifact.manifest.resources.assets,
+            queues: cachedPipeline.solutionArtifact.manifest.resources.queues,
+            buckets: cachedPipeline.solutionArtifact.manifest.resources.storageBuckets,
+          });
+
+          let testManagerResults: any[] = [];
+          let testManagerSummary = "";
+          let testManagerServiceLimitations: Array<{ service: string; status: "limited" | "unavailable" | "unknown"; reason: string }> | undefined;
+          const sdd = await documentStorage.getDocument(sddApprovalCheck.documentId);
+          if (sdd?.content) {
+            let extractedArtifacts = parseArtifactsFromSDD(sdd.content);
+            if (!extractedArtifacts) {
+              sendEvent({ deployStatus: "Extracting test artifacts from approved SDD..." });
+              extractedArtifacts = await extractArtifactsWithLLM(sdd.content);
+            }
+            const testManagerArtifacts = extractTestManagerArtifacts(extractedArtifacts || {});
+            if (hasTestManagerArtifacts(testManagerArtifacts)) {
+              sendEvent({ deployStatus: "Provisioning Test Manager artifacts..." });
+              const tmProvision = await deployAllArtifacts(
+                testManagerArtifacts,
+                null,
+                null,
+                pkg.projectName,
+                (step) => sendEvent({ deployStatus: step }),
+                prebuiltResult?.referencedMLSkillNames,
+              );
+              testManagerResults = tmProvision.results;
+              testManagerSummary = tmProvision.summary;
+              testManagerServiceLimitations = tmProvision.serviceLimitations;
+            }
+          }
+
+          const result = {
+            success: true,
+            message: `Solution "${deploymentName}" deployed successfully.`,
+            details: {
+              deploymentType: "solution",
+              packageName: packed.packageName,
+              version,
+              deploymentName,
+              folderName,
+              parentFolderName: deploymentParentFolder || null,
+              upload,
+              deploy,
+              activate,
+              validation,
+              testManagerResults: testManagerResults.length > 0 ? testManagerResults : undefined,
+              testManagerSummary: testManagerSummary || undefined,
+              testManagerServiceLimitations,
+            },
+          };
+
+          sendEvent({ deployStatus: `Solution "${deploymentName}" active in "${folderName}"` });
+          sendEvent({ deployComplete: true, success: true, result });
+          clearInterval(heartbeat);
+          return res.end();
+        } finally {
+          fs.rmSync(tempRoot, { recursive: true, force: true });
         }
       }
 

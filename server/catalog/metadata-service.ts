@@ -803,6 +803,7 @@ class MetadataService {
       console.log("[MetadataService] Scheduled OIDC refresh...");
       await this.refreshFromOIDC();
     }, OIDC_REFRESH_INTERVAL_MS);
+    this.oidcRefreshInterval.unref?.();
 
     this.refreshFromOIDC().catch(err => {
       console.warn(`[MetadataService] Initial OIDC refresh failed: ${err?.message || "unknown"}`);
