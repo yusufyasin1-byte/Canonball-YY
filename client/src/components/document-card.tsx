@@ -553,6 +553,24 @@ interface UiPathSolutionMeta {
   };
 }
 
+interface UiPathTestAutomationMeta {
+  fileName?: string;
+  projectName: string;
+  version: string;
+  workflowCount: number;
+  workflowFiles: string[];
+  testCases?: Array<{
+    name: string;
+    description: string;
+    steps: Array<{ action: string; expected: string }>;
+  }>;
+  testSets?: Array<{
+    name: string;
+    description: string;
+    testCaseNames: string[];
+  }>;
+}
+
 const MAX_DESC_LENGTH = 300;
 function capDescription(text: string): string {
   if (text.length <= MAX_DESC_LENGTH) return text;
@@ -652,7 +670,7 @@ export function UiPathPackageCard({ packageData, ideaId, onDeployProgress, onDep
     queryKey: ["/api/settings/uipath/status"],
   });
 
-  const { data: artifactMeta } = useQuery<{ solution: UiPathSolutionMeta | null }>({
+  const { data: artifactMeta } = useQuery<{ solution: UiPathSolutionMeta | null; testAutomation?: UiPathTestAutomationMeta | null }>({
     queryKey: ["/api/ideas", ideaId, "uipath-artifact-meta"],
     queryFn: async () => {
       const res = await fetch(`/api/ideas/${ideaId}/uipath-artifact-meta`, { credentials: "include" });
@@ -984,6 +1002,25 @@ export function UiPathPackageCard({ packageData, ideaId, onDeployProgress, onDep
             )}
           </div>
         )}
+
+        {artifactMeta?.testAutomation && (
+          <div className="rounded-md border border-emerald-500/20 bg-emerald-500/5 p-3 space-y-1.5" data-testid="uipath-test-automation-summary">
+            <div className="flex items-center justify-between gap-2">
+              <div>
+                <p className="text-[11px] font-semibold text-foreground">{artifactMeta.testAutomation.projectName}</p>
+                <p className="text-[10px] text-muted-foreground">
+                  {artifactMeta.testAutomation.workflowCount} executable test workflow{artifactMeta.testAutomation.workflowCount === 1 ? "" : "s"} · v{artifactMeta.testAutomation.version}
+                </p>
+              </div>
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-500 text-[10px] font-medium">
+                Test automation pack
+              </span>
+            </div>
+            <p className="text-[10px] text-muted-foreground">
+              Download the Studio-openable UiPath Tests project to publish or refresh linked Test Manager automations.
+            </p>
+          </div>
+        )}
       </div>
 
       {isFallbackReady && (
@@ -1064,6 +1101,33 @@ export function UiPathPackageCard({ packageData, ideaId, onDeployProgress, onDep
             <Download className="h-3.5 w-3.5" />
             {recommendedOutput === "package" ? "Recommended: Package" : "Recommended: Solution"}
           </button>
+          {artifactMeta?.testAutomation && (
+            <button
+              onClick={async () => {
+                try {
+                  const res = await fetch(`/api/ideas/${ideaId}/download-uipath-tests`, { credentials: "include" });
+                  if (!res.ok) throw new Error("Failed to download UiPath test automation pack");
+                  const blob = await res.blob();
+                  const url = URL.createObjectURL(blob);
+                  const a = document.createElement("a");
+                  a.href = url;
+                  a.download = artifactMeta.testAutomation?.fileName || `${packageData.projectName || "UiPath"}_Tests.zip`;
+                  document.body.appendChild(a);
+                  a.click();
+                  document.body.removeChild(a);
+                  URL.revokeObjectURL(url);
+                  toast({ title: "Test automation download started" });
+                } catch (error: any) {
+                  toast({ title: "Download failed", description: error?.message || "Failed to download UiPath test automation pack", variant: "destructive" });
+                }
+              }}
+              className="inline-flex items-center gap-1.5 px-3 py-2 rounded-md border border-border bg-background hover:bg-muted text-xs font-medium transition-colors"
+              data-testid="button-download-uipath-tests"
+            >
+              <Package className="h-3.5 w-3.5" />
+              Tests
+            </button>
+          )}
           <button
             onClick={async () => {
               try {

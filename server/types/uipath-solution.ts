@@ -51,6 +51,17 @@ export interface UiPathTestSet {
   testCaseNames: string[];
 }
 
+export interface UiPathTestAutomationArtifact {
+  fileName: string;
+  buffer: Buffer;
+  projectName: string;
+  version: string;
+  workflowCount: number;
+  workflowFiles: string[];
+  testCases: UiPathTestCase[];
+  testSets: UiPathTestSet[];
+}
+
 export interface UiPathSolutionManifest {
   schemaVersion: "1.0";
   solutionName: string;

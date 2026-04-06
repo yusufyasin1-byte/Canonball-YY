@@ -25,7 +25,7 @@ import remarkGfm from "remark-gfm";
 import { ProcessMapViewerModal } from "./process-map-viewer-modal";
 
 interface ArtifactSummary {
-  type: "as-is" | "to-be" | "pdd" | "sdd" | "dsd" | "uipath" | "dhg";
+  type: "as-is" | "to-be" | "pdd" | "sdd" | "dsd" | "uipath" | "test-automation" | "dhg";
   label: string;
   exists: boolean;
   status: string;
@@ -49,6 +49,7 @@ const ARTIFACT_ICONS: Record<string, typeof Map> = {
   sdd: FileText,
   dsd: FileText,
   uipath: Package,
+  "test-automation": Package,
   dhg: BookOpen,
 };
 
@@ -640,6 +641,24 @@ export function ArtifactHub({ ideaId, ideaTitle }: ArtifactHubProps) {
         return;
       }
 
+      if (type === "test-automation") {
+        const res = await fetch(`/api/ideas/${ideaId}/download-uipath-tests`, { credentials: "include" });
+        if (!res.ok) {
+          const errBody = await res.json().catch(() => null);
+          throw new Error(errBody?.message || "Failed to download UiPath test automation");
+        }
+        const blob = await res.blob();
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = `${ideaTitle.replace(/[^a-zA-Z0-9_-]/g, "_")}_tests.zip`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+        return;
+      }
+
       const resp = await fetch(`/api/ideas/${ideaId}/export?types=${type}`, { credentials: "include" });
       if (!resp.ok) throw new Error("Export failed");
       const blob = await resp.blob();
@@ -661,6 +680,7 @@ export function ArtifactHub({ ideaId, ideaTitle }: ArtifactHubProps) {
     setDownloadingAll(true);
     try {
       const hasUipath = artifacts.find(a => a.type === "uipath")?.exists;
+      const hasTestAutomation = artifacts.find(a => a.type === "test-automation")?.exists;
       const hasDhg = artifacts.find(a => a.type === "dhg")?.exists;
 
       const resp = await fetch(`/api/ideas/${ideaId}/export?types=as-is,to-be,pdd,sdd,dsd`, { credentials: "include" });
@@ -715,6 +735,22 @@ export function ArtifactHub({ ideaId, ideaTitle }: ArtifactHubProps) {
             URL.revokeObjectURL(url);
           }
         } catch { /* best effort for DHG */ }
+      }
+
+      if (hasTestAutomation) {
+        await new Promise(resolve => setTimeout(resolve, 500));
+        try {
+          const res = await fetch(`/api/ideas/${ideaId}/download-uipath-tests`, { credentials: "include" });
+          if (res.ok) {
+            const blob = await res.blob();
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement("a");
+            a.href = url;
+            a.download = `${ideaTitle.replace(/[^a-zA-Z0-9_-]/g, "_")}_tests.zip`;
+            a.click();
+            URL.revokeObjectURL(url);
+          }
+        } catch { /* best effort for tests */ }
       }
 
       toast({ title: "Downloads started" });

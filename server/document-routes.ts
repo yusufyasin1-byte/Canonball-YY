@@ -24,7 +24,7 @@ import type { UiPathPackage } from "./types/uipath-package";
 import {
   Document, Packer, Paragraph, TextRun, HeadingLevel,
   Table, TableRow, TableCell, WidthType, BorderStyle,
-  AlignmentType, ShadingType, ImageRun,
+  AlignmentType, ShadingType, ImageRun, TableOfContents,
 } from "docx";
 import { renderProcessMapImage } from "./process-map-renderer";
 import {
@@ -789,6 +789,18 @@ export function registerDocumentRoutes(app: Express): void {
           } : null,
         },
         {
+          type: "test-automation" as const,
+          label: "UiPath Test Automation Pack",
+          exists: !!getCachedPipelineResult(ideaId)?.testAutomationArtifact,
+          status: getCachedPipelineResult(ideaId)?.testAutomationArtifact ? "Generated" : "Not Generated",
+          version: null,
+          meta: getCachedPipelineResult(ideaId)?.testAutomationArtifact ? {
+            projectName: getCachedPipelineResult(ideaId)?.testAutomationArtifact?.projectName,
+            workflowCount: getCachedPipelineResult(ideaId)?.testAutomationArtifact?.workflowCount,
+            dependencyCount: 2,
+          } : null,
+        },
+        {
           type: "dhg" as const,
           label: "Developer Handoff Guide",
           exists: !!uipathMsg,
@@ -833,6 +845,15 @@ export function registerDocumentRoutes(app: Express): void {
         dependencies: pkg.dependencies || [],
         workflows: pkg.workflows || [],
         preferredFormat,
+        testAutomation: pipelineResult?.testAutomationArtifact ? {
+          fileName: pipelineResult.testAutomationArtifact.fileName,
+          projectName: pipelineResult.testAutomationArtifact.projectName,
+          version: pipelineResult.testAutomationArtifact.version,
+          workflowCount: pipelineResult.testAutomationArtifact.workflowCount,
+          workflowFiles: pipelineResult.testAutomationArtifact.workflowFiles,
+          testCases: pipelineResult.testAutomationArtifact.testCases,
+          testSets: pipelineResult.testAutomationArtifact.testSets,
+        } : null,
         solution: solutionManifest ? {
           fileName: pipelineResult?.solutionArtifact?.fileName,
           solutionName: solutionManifest.solutionName,
@@ -1507,6 +1528,28 @@ export function registerDocumentRoutes(app: Express): void {
     }
   });
 
+  app.get("/api/ideas/:ideaId/download-uipath-tests", async (req: Request, res: Response) => {
+    const ideaId = await verifyIdeaAccess(req, res);
+    if (!ideaId) return;
+
+    try {
+      const pipelineResult = getCachedPipelineResult(ideaId);
+      if (!pipelineResult?.testAutomationArtifact?.buffer?.length) {
+        return res.status(404).json({
+          error: "TEST_AUTOMATION_NOT_BUILT",
+          message: "No UiPath test automation artifact has been generated for this idea yet.",
+        });
+      }
+
+      res.setHeader("Content-Type", "application/zip");
+      res.setHeader("Content-Disposition", `attachment; filename="${pipelineResult.testAutomationArtifact.fileName}"`);
+      res.end(pipelineResult.testAutomationArtifact.buffer);
+    } catch (error) {
+      console.error("Error downloading UiPath test automation artifact:", error);
+      return res.status(500).json({ message: "Failed to download UiPath test automation artifact" });
+    }
+  });
+
   app.get("/api/ideas/:ideaId/dhg", async (req: Request, res: Response) => {
     const ideaId = await verifyIdeaAccess(req, res);
     if (!ideaId) return;
@@ -1555,6 +1598,12 @@ export function registerDocumentRoutes(app: Express): void {
       const docChildren: (Paragraph | Table)[] = [];
 
       const ORANGE = "E8450A";
+      const getTemplateSectionList = (docType: string): string[] | null => {
+        if (docType === "PDD") return PDD_TEMPLATE_SECTIONS;
+        if (docType === "SDD") return SDD_TEMPLATE_SECTIONS;
+        if (docType === "DSD") return DSD_TEMPLATE_SECTIONS;
+        return null;
+      };
 
       docChildren.push(new Paragraph({
         heading: HeadingLevel.TITLE,
@@ -1575,6 +1624,15 @@ export function registerDocumentRoutes(app: Express): void {
         ],
         spacing: { after: 400 },
       }));
+      docChildren.push(new Paragraph({
+        children: [new TextRun({ text: "This export is generated from the CB2YY automation factory and aligned to UiPath Automation Hub document structure.", italics: true, size: 20, color: "777777" })],
+        spacing: { after: 240 },
+      }));
+      docChildren.push(new TableOfContents("Contents", {
+        hyperlink: true,
+        headingStyleRange: "1-3",
+      }));
+      docChildren.push(new Paragraph({ spacing: { after: 260 } }));
 
       for (const t of requestedTypes) {
         const typeLower = t.toLowerCase();
@@ -1967,8 +2025,17 @@ export function registerDocumentRoutes(app: Express): void {
             spacing: { before: 200, after: 100 },
           }));
 
-          const content = latest.content || "No content";
+          const normalizedContent = ensureTemplateSections(
+            latest.content || "No content",
+            getTemplateSectionList(docType) || [],
+          );
+          const content = normalizedContent;
           const lines = content.split("\n");
+
+          docChildren.push(new Paragraph({
+            children: [new TextRun({ text: `Aligned to UiPath Automation Hub ${docType} template structure`, italics: true, size: 20, color: "666666" })],
+            spacing: { after: 120 },
+          }));
           for (const line of lines) {
             const trimmed = line.trim();
             if (trimmed.startsWith("## ")) {

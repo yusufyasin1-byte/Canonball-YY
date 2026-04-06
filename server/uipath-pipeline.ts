@@ -42,6 +42,7 @@ import {
 import { classifyComplexity, estimateComplexityFromContext, type ComplexityTier, type ComplexityClassification } from "./complexity-classifier";
 import { recordPipelineHealth, computePipelineHealthFromResult } from "./pipeline-health";
 import { buildUiPathSolutionArtifact } from "./uipath-solution-builder";
+import { buildUiPathTestAutomationArtifact } from "./uipath-test-automation-builder";
 import {
   extractUiPathTestDesign,
   recommendUiPathDelivery,
@@ -49,6 +50,7 @@ import {
 import type {
   UiPathDeliveryRecommendation,
   UiPathSolutionArtifact,
+  UiPathTestAutomationArtifact,
   UiPathTestCase,
   UiPathTestSet,
 } from "./types/uipath-solution";
@@ -304,6 +306,7 @@ export interface PipelineOutcomeReport {
 export interface PipelineResult {
   packageBuffer: Buffer;
   solutionArtifact?: UiPathSolutionArtifact;
+  testAutomationArtifact?: UiPathTestAutomationArtifact | null;
   deliveryRecommendation?: UiPathDeliveryRecommendation;
   testCases?: UiPathTestCase[];
   testSets?: UiPathTestSet[];
@@ -1402,6 +1405,23 @@ export async function compilePackageFromSpecs(
     });
     const { testCases, testSets } = extractUiPathTestDesign(orchestratorArtifacts);
 
+    tracker.start("test_automation_bundle", "Building executable UiPath Tests project");
+    const testAutomationArtifact = buildUiPathTestAutomationArtifact({
+      projectName: dhgResult.projectName,
+      version: ver,
+      testCases,
+      testSets,
+    });
+    tracker.complete(
+      "test_automation_bundle",
+      testAutomationArtifact
+        ? `Executable UiPath Tests project built (${testAutomationArtifact.workflowCount} test workflow${testAutomationArtifact.workflowCount === 1 ? "" : "s"})`
+        : "No executable UiPath Tests project generated",
+      {
+        workflowCount: testAutomationArtifact?.workflowCount || 0,
+      },
+    );
+
     tracker.start("solution_bundle", "Building native UiPath .uis solution export");
     const solutionArtifact = buildUiPathSolutionArtifact({
       pkg: enriched,
@@ -1463,6 +1483,7 @@ export async function compilePackageFromSpecs(
     const result: PipelineResult = {
       packageBuffer: finalPackageBuffer,
       solutionArtifact,
+      testAutomationArtifact,
       deliveryRecommendation,
       testCases,
       testSets,

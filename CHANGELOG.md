@@ -4,6 +4,22 @@ This changelog captures the key release notes for the `Updated-code---solution-p
 
 ## 2026-04-03
 
+### `Unreleased` - Add reusable UiPath test automation artifact generation
+
+Added
+- A generic UiPath Tests project builder that turns generated test cases and test sets into a Studio-openable executable test automation pack.
+- A focused regression test for the shared test automation builder.
+- A dedicated backend download route for the generated UiPath test automation artifact.
+
+Changed
+- Extended the pipeline to emit a first-class `testAutomationArtifact` alongside the package and native solution outputs.
+- Surfaced the generated test automation pack in artifact metadata, the artifact hub, and the UiPath package card.
+- Improved `.docx` exports so PDD, SDD, and DSD content is normalized to the official UiPath template section order and includes a generated table of contents.
+
+Validated
+- Focused test automation builder tests passed.
+- Existing solution-builder tests still passed after the new artifact integration.
+
 ### `Unreleased` - Add UiPath template-aligned PDD, SDD, and DSD support
 
 Added
