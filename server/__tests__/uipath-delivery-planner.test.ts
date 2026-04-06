@@ -23,6 +23,7 @@ describe("UiPath delivery planner", () => {
     });
 
     expect(recommendation.recommendedOutput).toBe("solution");
+    expect(recommendation.recommendedModality).toBe("unattended_robot");
     expect(recommendation.signals.sharedResourceCount).toBe(2);
   });
 
@@ -43,6 +44,75 @@ describe("UiPath delivery planner", () => {
     });
 
     expect(recommendation.recommendedOutput).toBe("package");
+    expect(recommendation.recommendedExecutionModel).toBe("unattended");
+  });
+
+  it("recommends Assistant for desktop-heavy attended use cases", () => {
+    const pkg: UiPathPackage = {
+      projectName: "DesktopHelper",
+      description: "User launches the assistant and the robot clicks through a desktop application window.",
+      dependencies: [],
+      workflows: [{ name: "Main", description: "Use application scope and click buttons", variables: [], steps: [] }],
+      internal: {
+        automationType: "rpa",
+      },
+    };
+
+    const recommendation = recommendUiPathDelivery({
+      pkg,
+      orchestratorArtifacts: {},
+    });
+
+    expect(recommendation.recommendedModality).toBe("attended_assistant");
+    expect(recommendation.recommendedExecutionModel).toBe("attended");
+    expect(recommendation.recommendedProducts).toContain("Assistant");
+  });
+
+  it("recommends Apps + process for human review workflows", () => {
+    const pkg: UiPathPackage = {
+      projectName: "ApprovalPortal",
+      description: "A self-service portal form captures requests for manager approval and review.",
+      dependencies: [],
+      workflows: [{ name: "Main", description: "Submit request and wait for approval", variables: [], steps: [] }],
+      internal: {
+        automationType: "hybrid",
+      },
+    };
+
+    const recommendation = recommendUiPathDelivery({
+      pkg,
+      orchestratorArtifacts: {
+        actionCenter: [{ taskCatalog: "ManagerApproval" }],
+      },
+    });
+
+    expect(recommendation.recommendedModality).toBe("app_fronted_process");
+    expect(recommendation.recommendedExecutionModel).toBe("hybrid");
+    expect(recommendation.recommendedProducts).toContain("Apps");
+    expect(recommendation.recommendedProducts).toContain("Action Center");
+  });
+
+  it("recommends API workflow for webhook-led integrations", () => {
+    const pkg: UiPathPackage = {
+      projectName: "WebhookWorker",
+      description: "Receives webhook events from a REST API endpoint and posts JSON responses.",
+      dependencies: [],
+      workflows: [{ name: "Main", description: "HTTP webhook handler", variables: [], steps: [] }],
+      internal: {
+        automationType: "rpa",
+      },
+    };
+
+    const recommendation = recommendUiPathDelivery({
+      pkg,
+      orchestratorArtifacts: {
+        integrationServiceConnectors: [{ connectorName: "Salesforce" }],
+      },
+    });
+
+    expect(recommendation.recommendedModality).toBe("api_workflow");
+    expect(recommendation.recommendedExecutionModel).toBe("unattended");
+    expect(recommendation.recommendedProducts).toContain("Integration Service");
   });
 
   it("extracts normalized test cases and sets from orchestrator artifacts", () => {

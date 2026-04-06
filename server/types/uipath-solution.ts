@@ -18,9 +18,19 @@ export interface UiPathSolutionResourceSummary {
 }
 
 export type UiPathDeliveryTarget = "package" | "solution";
+export type UiPathDeliveryModality =
+  | "unattended_robot"
+  | "attended_assistant"
+  | "app_fronted_process"
+  | "agent_orchestrated"
+  | "api_workflow";
+export type UiPathExecutionModel = "unattended" | "attended" | "hybrid";
 
 export interface UiPathDeliveryRecommendation {
   recommendedOutput: UiPathDeliveryTarget;
+  recommendedModality: UiPathDeliveryModality;
+  recommendedExecutionModel: UiPathExecutionModel;
+  recommendedProducts: string[];
   rationale: string[];
   signals: {
     automationType: "rpa" | "agent" | "hybrid";
@@ -31,6 +41,11 @@ export interface UiPathDeliveryRecommendation {
     actionCatalogCount: number;
     integrationCount: number;
     sharedResourceCount: number;
+    uiInteractionSignalCount: number;
+    assistantSignalCount: number;
+    appSignalCount: number;
+    apiSignalCount: number;
+    humanInLoopSignalCount: number;
   };
 }
 

@@ -14,6 +14,31 @@ function safeText(value: any, fallback = ""): string {
   return text || fallback;
 }
 
+function flattenSignalText(value: any, output: string[] = []): string[] {
+  if (value == null) return output;
+  if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
+    const text = String(value).trim();
+    if (text) output.push(text);
+    return output;
+  }
+  if (Array.isArray(value)) {
+    for (const item of value) flattenSignalText(item, output);
+    return output;
+  }
+  if (typeof value === "object") {
+    for (const nested of Object.values(value)) flattenSignalText(nested, output);
+  }
+  return output;
+}
+
+function countKeywordSignals(haystack: string, keywords: string[]): number {
+  let count = 0;
+  for (const keyword of keywords) {
+    if (haystack.includes(keyword)) count++;
+  }
+  return count;
+}
+
 export function extractUiPathTestDesign(orchestratorArtifacts: any): {
   testCases: UiPathTestCase[];
   testSets: UiPathTestSet[];
@@ -51,9 +76,73 @@ export function recommendUiPathDelivery(params: {
   const actionCatalogCount = safeArray(orchestratorArtifacts?.actionCenter).length + safeArray(orchestratorArtifacts?.actionCatalogs).length;
   const integrationCount = safeArray(orchestratorArtifacts?.integrationServiceConnectors).length;
   const sharedResourceCount = queueCount + assetCount + storageBucketCount + actionCatalogCount + integrationCount;
+  const signalCorpus = flattenSignalText([
+    pkg.projectName,
+    pkg.description,
+    pkg.internal?.sddContent,
+    pkg.internal?.processNodes,
+    pkg.workflows?.map((workflow) => ({
+      name: workflow.name,
+      description: workflow.description,
+      steps: workflow.steps?.map((step) => ({
+        activity: step.activity,
+        activityType: step.activityType,
+        notes: step.notes,
+      })),
+    })),
+    orchestratorArtifacts,
+  ]).join(" ").toLowerCase();
+
+  const uiInteractionSignalCount = countKeywordSignals(signalCorpus, [
+    "selector",
+    "browser",
+    "window",
+    "desktop",
+    "click",
+    "type into",
+    "screen",
+    "application scope",
+    "use application",
+  ]);
+  const assistantSignalCount = countKeywordSignals(signalCorpus, [
+    "assistant",
+    "attended",
+    "user launches",
+    "employee runs",
+    "desktop helper",
+  ]);
+  const appSignalCount = countKeywordSignals(signalCorpus, [
+    "app",
+    "portal",
+    "dashboard",
+    "form",
+    "self-service",
+    "request submission",
+  ]);
+  const apiSignalCount = countKeywordSignals(signalCorpus, [
+    "api",
+    "webhook",
+    "endpoint",
+    "rest",
+    "http",
+    "json",
+    "integration service",
+  ]);
+  const humanInLoopSignalCount = countKeywordSignals(signalCorpus, [
+    "action center",
+    "approval",
+    "review",
+    "human in the loop",
+    "manual review",
+    "validation",
+    "exception handling",
+  ]);
 
   const rationale: string[] = [];
   let recommendedOutput: "package" | "solution" = "package";
+  let recommendedModality: UiPathDeliveryRecommendation["recommendedModality"] = "unattended_robot";
+  let recommendedExecutionModel: UiPathDeliveryRecommendation["recommendedExecutionModel"] = "unattended";
+  const recommendedProducts = new Set<string>(["Orchestrator"]);
 
   if (automationType === "agent" || automationType === "hybrid") {
     recommendedOutput = "solution";
@@ -76,8 +165,47 @@ export function recommendUiPathDelivery(params: {
     rationale.push("Even though the automation is RPA-only, the surrounding design signals still favor solution lifecycle management.");
   }
 
+  if (integrationCount > 0 || apiSignalCount > 0) {
+    recommendedProducts.add("Integration Service");
+  }
+  if (queueCount > 0) {
+    recommendedProducts.add("Queues");
+  }
+  if (actionCatalogCount > 0 || humanInLoopSignalCount > 0) {
+    recommendedProducts.add("Action Center");
+  }
+
+  if (automationType === "agent") {
+    recommendedModality = "agent_orchestrated";
+    recommendedExecutionModel = actionCatalogCount > 0 || humanInLoopSignalCount > 0 ? "hybrid" : "unattended";
+    recommendedProducts.add("Agents");
+    rationale.push("Agent automation signals were detected, so an agent-orchestrated delivery model is recommended.");
+  } else if (appSignalCount >= 2 || actionCatalogCount > 0) {
+    recommendedModality = "app_fronted_process";
+    recommendedExecutionModel = "hybrid";
+    recommendedProducts.add("Apps");
+    rationale.push("The use case includes human-facing forms/review patterns, so an Apps + process experience is recommended.");
+  } else if ((assistantSignalCount > 0 || uiInteractionSignalCount >= 3) && queueCount === 0 && actionCatalogCount === 0) {
+    recommendedModality = "attended_assistant";
+    recommendedExecutionModel = "attended";
+    recommendedProducts.add("Assistant");
+    rationale.push("Desktop/UI-heavy interaction signals favor an attended Assistant-driven experience over a purely unattended bot.");
+  } else if (apiSignalCount >= 2 && uiInteractionSignalCount === 0 && appSignalCount === 0) {
+    recommendedModality = "api_workflow";
+    recommendedExecutionModel = "unattended";
+    recommendedProducts.add("Integration Service");
+    rationale.push("API/webhook-led signals dominate this use case, so an API workflow pattern is recommended.");
+  } else {
+    recommendedModality = "unattended_robot";
+    recommendedExecutionModel = actionCatalogCount > 0 ? "hybrid" : "unattended";
+    rationale.push("The default recommendation is an unattended robot pattern with Orchestrator-managed execution.");
+  }
+
   return {
     recommendedOutput,
+    recommendedModality,
+    recommendedExecutionModel,
+    recommendedProducts: Array.from(recommendedProducts),
     rationale,
     signals: {
       automationType,
@@ -88,6 +216,11 @@ export function recommendUiPathDelivery(params: {
       actionCatalogCount,
       integrationCount,
       sharedResourceCount,
+      uiInteractionSignalCount,
+      assistantSignalCount,
+      appSignalCount,
+      apiSignalCount,
+      humanInLoopSignalCount,
     },
   };
 }

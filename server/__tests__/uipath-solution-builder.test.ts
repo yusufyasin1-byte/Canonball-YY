@@ -47,6 +47,9 @@ describe("UiPath solution builder", () => {
 
     const deliveryRecommendation: UiPathDeliveryRecommendation = {
       recommendedOutput: "solution",
+      recommendedModality: "app_fronted_process",
+      recommendedExecutionModel: "hybrid",
+      recommendedProducts: ["Orchestrator", "Apps", "Queues"],
       rationale: ["Multiple shared resources were found."],
       signals: {
         automationType: "hybrid",
@@ -57,6 +60,11 @@ describe("UiPath solution builder", () => {
         actionCatalogCount: 0,
         integrationCount: 0,
         sharedResourceCount: 3,
+        uiInteractionSignalCount: 0,
+        assistantSignalCount: 0,
+        appSignalCount: 2,
+        apiSignalCount: 0,
+        humanInLoopSignalCount: 1,
       },
     };
 

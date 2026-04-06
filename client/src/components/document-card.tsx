@@ -515,6 +515,9 @@ interface UiPathSolutionMeta {
   automationType: string;
   recommendation?: {
     recommendedOutput: "package" | "solution";
+    recommendedModality: "unattended_robot" | "attended_assistant" | "app_fronted_process" | "agent_orchestrated" | "api_workflow";
+    recommendedExecutionModel: "unattended" | "attended" | "hybrid";
+    recommendedProducts: string[];
     rationale: string[];
     signals: {
       automationType: string;
@@ -525,6 +528,11 @@ interface UiPathSolutionMeta {
       actionCatalogCount: number;
       integrationCount: number;
       sharedResourceCount: number;
+      uiInteractionSignalCount: number;
+      assistantSignalCount: number;
+      appSignalCount: number;
+      apiSignalCount: number;
+      humanInLoopSignalCount: number;
     };
   } | null;
   testCases?: Array<{
@@ -962,6 +970,15 @@ export function UiPathPackageCard({ packageData, ideaId, onDeployProgress, onDep
                 <p>
                   Recommended output: <span className="font-medium text-foreground">{artifactMeta.solution.recommendation.recommendedOutput}</span>
                 </p>
+                <p>
+                  Recommended modality: <span className="font-medium text-foreground">{artifactMeta.solution.recommendation.recommendedModality}</span>
+                  {" "}Â· Execution: <span className="font-medium text-foreground">{artifactMeta.solution.recommendation.recommendedExecutionModel}</span>
+                </p>
+                {artifactMeta.solution.recommendation.recommendedProducts.length > 0 && (
+                  <p>
+                    UiPath products: <span className="font-medium text-foreground">{artifactMeta.solution.recommendation.recommendedProducts.join(", ")}</span>
+                  </p>
+                )}
                 {artifactMeta.solution.recommendation.rationale.map((reason, index) => (
                   <p key={index}>• {reason}</p>
                 ))}

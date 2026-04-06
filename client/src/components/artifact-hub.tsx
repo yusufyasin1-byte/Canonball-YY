@@ -270,6 +270,9 @@ interface UiPathPackageData {
     automationType: string;
     recommendation?: {
       recommendedOutput: "package" | "solution";
+      recommendedModality: "unattended_robot" | "attended_assistant" | "app_fronted_process" | "agent_orchestrated" | "api_workflow";
+      recommendedExecutionModel: "unattended" | "attended" | "hybrid";
+      recommendedProducts: string[];
       rationale: string[];
       signals: {
         automationType: string;
@@ -280,6 +283,11 @@ interface UiPathPackageData {
         actionCatalogCount: number;
         integrationCount: number;
         sharedResourceCount: number;
+        uiInteractionSignalCount: number;
+        assistantSignalCount: number;
+        appSignalCount: number;
+        apiSignalCount: number;
+        humanInLoopSignalCount: number;
       };
     } | null;
     testCases?: Array<{
@@ -424,6 +432,15 @@ function UiPathViewerModal({ open, onClose, ideaId }: { open: boolean; onClose: 
                         <p>
                           Recommended output: <span className="font-medium text-foreground">{packageData.solution.recommendation.recommendedOutput}</span>
                         </p>
+                        <p>
+                          Recommended modality: <span className="font-medium text-foreground">{packageData.solution.recommendation.recommendedModality}</span>
+                          {" "}Â· Execution: <span className="font-medium text-foreground">{packageData.solution.recommendation.recommendedExecutionModel}</span>
+                        </p>
+                        {packageData.solution.recommendation.recommendedProducts.length > 0 && (
+                          <p>
+                            UiPath products: <span className="font-medium text-foreground">{packageData.solution.recommendation.recommendedProducts.join(", ")}</span>
+                          </p>
+                        )}
                         {packageData.solution.recommendation.rationale.map((reason, index) => (
                           <p key={index}>• {reason}</p>
                         ))}

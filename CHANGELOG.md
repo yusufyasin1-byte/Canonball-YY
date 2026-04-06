@@ -2,6 +2,22 @@
 
 This changelog captures the key release notes for the `Updated-code---solution-packager` branch so the history is visible in GitHub alongside the commits.
 
+## 2026-04-06
+
+### `Unreleased` - Add UiPath modality and execution recommendations
+
+Added
+- Delivery recommendation metadata for UiPath modality, execution model, and recommended product set.
+- New planner heuristics to distinguish unattended robot, attended Assistant, app-fronted, agent-orchestrated, and API-workflow delivery patterns.
+
+Changed
+- Surfaced the richer recommendation details in the artifact hub and document card UI alongside the existing package-vs-solution guidance.
+- Extended existing recommendation tests and solution-builder fixtures to cover the new modality and execution model outputs.
+
+Validated
+- Repo-wide `tsc --noEmit` passes cleanly.
+- Focused Vitest suites for the delivery planner and solution builder passed successfully.
+
 ## 2026-04-03
 
 ### `Unreleased` - Add PO document export helpers
