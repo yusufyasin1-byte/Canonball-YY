@@ -4,6 +4,17 @@ This changelog captures the key release notes for the `Updated-code---solution-p
 
 ## 2026-04-03
 
+### `Unreleased` - Add PO document export helpers
+
+Added
+- Reusable scripts to generate PO-specific PDD, SDD, and DSD outputs in both markdown and `.docx` formats.
+
+Changed
+- Standardized the PO document export path so generated outputs land under the simulation docs folder with consistent Automation Hub-style filenames.
+
+Validated
+- Generated concrete PO `PDD`, `SDD`, and `DSD` outputs successfully into the simulation output docs directory.
+
 ### `Unreleased` - Clear repo-wide TypeScript compile debt
 
 Added
