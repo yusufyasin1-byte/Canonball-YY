@@ -4,6 +4,22 @@ This changelog captures the key release notes for the `Updated-code---solution-p
 
 ## 2026-04-06
 
+### `Unreleased` - Add demo-ready delivery, governance, and operations summaries
+
+Added
+- Connector-aware UiPath delivery recommendations with inferred Integration Service guidance.
+- Generated operating-model, governance-pack, test-release-plan, insights-plan, and executive-summary outputs in the native solution bundle.
+- Executive summary metadata surfaced through the UiPath artifact API and solution UI cards.
+
+Changed
+- Expanded the solution manifest to carry operating-model, release-readiness, reporting, test-release, and executive-summary metadata.
+- Updated the artifact hub and document card views to show deployment-readiness, release-readiness, smoke-test, KPI, and executive-summary details for generated solutions.
+- Strengthened delivery-planner and solution-builder tests to cover connector inference and the new demo-facing solution documents.
+
+Validated
+- Repo-wide `tsc --noEmit` passes cleanly.
+- Focused backend Vitest suites for the delivery planner and solution builder passed successfully using the server test configuration.
+
 ### `Unreleased` - Add UiPath modality and execution recommendations
 
 Added

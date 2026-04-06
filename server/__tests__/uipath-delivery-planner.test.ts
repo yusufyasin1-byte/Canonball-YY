@@ -25,6 +25,7 @@ describe("UiPath delivery planner", () => {
     expect(recommendation.recommendedOutput).toBe("solution");
     expect(recommendation.recommendedModality).toBe("unattended_robot");
     expect(recommendation.signals.sharedResourceCount).toBe(2);
+    expect(recommendation.connectorRecommendations.map((connector) => connector.connectorName)).toContain("Coupa");
   });
 
   it("keeps simple single-project automations as packages", () => {
@@ -113,6 +114,41 @@ describe("UiPath delivery planner", () => {
     expect(recommendation.recommendedModality).toBe("api_workflow");
     expect(recommendation.recommendedExecutionModel).toBe("unattended");
     expect(recommendation.recommendedProducts).toContain("Integration Service");
+    expect(recommendation.connectorRecommendations.map((connector) => connector.connectorName)).toContain("Salesforce");
+  });
+
+  it("infers connector recommendations and operating signals from business systems", () => {
+    const pkg: UiPathPackage = {
+      projectName: "JoinerWelcome",
+      description: "Read Workday worker records and send onboarding mail through Outlook with documents in SharePoint.",
+      dependencies: [],
+      workflows: [{ name: "Main", description: "Get worker and send welcome email", variables: [], steps: [] }],
+      internal: {
+        automationType: "rpa",
+        processNodes: [
+          { id: "1", name: "Get worker", system: "Workday" },
+          { id: "2", name: "Send welcome email", system: "Outlook" },
+          { id: "3", name: "Store onboarding guide", system: "SharePoint" },
+        ],
+      },
+    };
+
+    const recommendation = recommendUiPathDelivery({
+      pkg,
+      orchestratorArtifacts: {
+        triggers: [{ name: "DailyJoinerCheck", type: "Time" }],
+        apps: [{ name: "Joiner Dashboard" }],
+        dataFabricEntities: [{ name: "JoinerRecord" }],
+      },
+    });
+
+    expect(recommendation.connectorRecommendations.map((connector) => connector.connectorName)).toContain("Microsoft 365");
+    expect(recommendation.connectorRecommendations.map((connector) => connector.connectorName)).toContain("Workday");
+    expect(recommendation.recommendedProducts).toContain("Data Service");
+    expect(recommendation.recommendedProducts).toContain("Apps");
+    expect(recommendation.signals.triggerCount).toBe(1);
+    expect(recommendation.signals.appCount).toBe(1);
+    expect(recommendation.signals.dataFabricEntityCount).toBe(1);
   });
 
   it("extracts normalized test cases and sets from orchestrator artifacts", () => {

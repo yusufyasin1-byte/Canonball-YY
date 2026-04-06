@@ -17,6 +17,56 @@ export interface UiPathSolutionResourceSummary {
   integrations: string[];
 }
 
+export interface UiPathConnectorRecommendation {
+  connectorName: string;
+  sourceSystems: string[];
+  rationale: string;
+  usedActions?: string[];
+}
+
+export interface UiPathOperatingModelSummary {
+  runtimeProfile: string;
+  recommendedFolderStrategy: string;
+  recommendedRobotType: string;
+  triggerStrategy: string;
+  supportModel: string;
+  deploymentReadinessNotes: string[];
+  integrationServiceConnectors: string[];
+  apps: string[];
+  dataFabricEntities: string[];
+  triggerNames: string[];
+  governanceArtifacts: string[];
+}
+
+export interface UiPathReleaseReadinessSummary {
+  score: number;
+  status: "ready" | "mostly_ready" | "needs_work";
+  strengths: string[];
+  outstandingItems: string[];
+  releaseGates: string[];
+}
+
+export interface UiPathTestReleaseSummary {
+  projectName: string;
+  smokeTestSetName?: string;
+  automatedCoveragePercent: number;
+  nextActions: string[];
+}
+
+export interface UiPathReportingSummary {
+  businessKpis: string[];
+  operationalKpis: string[];
+  dashboards: string[];
+  alerts: string[];
+}
+
+export interface UiPathExecutiveSummary {
+  overview: string;
+  lifecycleCoverage: string[];
+  keyOutputs: string[];
+  deploymentStory: string[];
+}
+
 export type UiPathDeliveryTarget = "package" | "solution";
 export type UiPathDeliveryModality =
   | "unattended_robot"
@@ -31,6 +81,7 @@ export interface UiPathDeliveryRecommendation {
   recommendedModality: UiPathDeliveryModality;
   recommendedExecutionModel: UiPathExecutionModel;
   recommendedProducts: string[];
+  connectorRecommendations: UiPathConnectorRecommendation[];
   rationale: string[];
   signals: {
     automationType: "rpa" | "agent" | "hybrid";
@@ -46,6 +97,9 @@ export interface UiPathDeliveryRecommendation {
     appSignalCount: number;
     apiSignalCount: number;
     humanInLoopSignalCount: number;
+    triggerCount: number;
+    appCount: number;
+    dataFabricEntityCount: number;
   };
 }
 
@@ -92,6 +146,11 @@ export interface UiPathSolutionManifest {
     notes: string[];
   };
   recommendation?: UiPathDeliveryRecommendation;
+  operatingModel?: UiPathOperatingModelSummary;
+  releaseReadiness?: UiPathReleaseReadinessSummary;
+  testRelease?: UiPathTestReleaseSummary;
+  reporting?: UiPathReportingSummary;
+  executiveSummary?: UiPathExecutiveSummary;
   testCases?: UiPathTestCase[];
   testSets?: UiPathTestSet[];
   components: UiPathSolutionComponent[];

@@ -273,6 +273,12 @@ interface UiPathPackageData {
       recommendedModality: "unattended_robot" | "attended_assistant" | "app_fronted_process" | "agent_orchestrated" | "api_workflow";
       recommendedExecutionModel: "unattended" | "attended" | "hybrid";
       recommendedProducts: string[];
+      connectorRecommendations: Array<{
+        connectorName: string;
+        sourceSystems: string[];
+        rationale: string;
+        usedActions?: string[];
+      }>;
       rationale: string[];
       signals: {
         automationType: string;
@@ -288,7 +294,48 @@ interface UiPathPackageData {
         appSignalCount: number;
         apiSignalCount: number;
         humanInLoopSignalCount: number;
+        triggerCount: number;
+        appCount: number;
+        dataFabricEntityCount: number;
       };
+    } | null;
+    operatingModel?: {
+      runtimeProfile: string;
+      recommendedFolderStrategy: string;
+      recommendedRobotType: string;
+      triggerStrategy: string;
+      supportModel: string;
+      deploymentReadinessNotes: string[];
+      integrationServiceConnectors: string[];
+      apps: string[];
+      dataFabricEntities: string[];
+      triggerNames: string[];
+      governanceArtifacts: string[];
+    } | null;
+    releaseReadiness?: {
+      score: number;
+      status: "ready" | "mostly_ready" | "needs_work";
+      strengths: string[];
+      outstandingItems: string[];
+      releaseGates: string[];
+    } | null;
+    testRelease?: {
+      projectName: string;
+      smokeTestSetName?: string;
+      automatedCoveragePercent: number;
+      nextActions: string[];
+    } | null;
+    reporting?: {
+      businessKpis: string[];
+      operationalKpis: string[];
+      dashboards: string[];
+      alerts: string[];
+    } | null;
+    executiveSummary?: {
+      overview: string;
+      lifecycleCoverage: string[];
+      keyOutputs: string[];
+      deploymentStory: string[];
     } | null;
     testCases?: Array<{
       name: string;
@@ -441,9 +488,24 @@ function UiPathViewerModal({ open, onClose, ideaId }: { open: boolean; onClose: 
                             UiPath products: <span className="font-medium text-foreground">{packageData.solution.recommendation.recommendedProducts.join(", ")}</span>
                           </p>
                         )}
+                        {packageData.solution.recommendation.connectorRecommendations.length > 0 && (
+                          <p>
+                            Recommended connectors: <span className="font-medium text-foreground">{packageData.solution.recommendation.connectorRecommendations.map((connector) => connector.connectorName).join(", ")}</span>
+                          </p>
+                        )}
                         {packageData.solution.recommendation.rationale.map((reason, index) => (
                           <p key={index}>• {reason}</p>
                         ))}
+                      </>
+                    )}
+                    {packageData.solution.operatingModel && (
+                      <>
+                        <p>
+                          Runtime profile: <span className="font-medium text-foreground">{packageData.solution.operatingModel.runtimeProfile}</span>
+                        </p>
+                        <p>
+                          Trigger strategy: <span className="font-medium text-foreground">{packageData.solution.operatingModel.triggerStrategy}</span>
+                        </p>
                       </>
                     )}
                     <p>Use Studio Web or UiPath CLI to deploy the solution. The underlying package is included inside the bundle.</p>
@@ -452,6 +514,29 @@ function UiPathViewerModal({ open, onClose, ideaId }: { open: boolean; onClose: 
                     )}
                     {packageData.solution.resources.assets.length > 0 && (
                       <p>Assets: {packageData.solution.resources.assets.join(", ")}</p>
+                    )}
+                    {(packageData.solution.operatingModel?.deploymentReadinessNotes?.length ?? 0) > 0 && (
+                      <p>Deployment readiness: {packageData.solution.operatingModel?.deploymentReadinessNotes?.[0]}</p>
+                    )}
+                    {packageData.solution.releaseReadiness && (
+                      <p>
+                        Release readiness: <span className="font-medium text-foreground">{packageData.solution.releaseReadiness.score}/100 ({packageData.solution.releaseReadiness.status})</span>
+                      </p>
+                    )}
+                    {packageData.solution.executiveSummary?.overview && (
+                      <p>
+                        Executive summary: <span className="font-medium text-foreground">{packageData.solution.executiveSummary.overview}</span>
+                      </p>
+                    )}
+                    {packageData.solution.testRelease?.smokeTestSetName && (
+                      <p>
+                        Smoke release test: <span className="font-medium text-foreground">{packageData.solution.testRelease.smokeTestSetName}</span>
+                      </p>
+                    )}
+                    {(packageData.solution.reporting?.businessKpis?.length ?? 0) > 0 && (
+                      <p>
+                        Primary KPI: <span className="font-medium text-foreground">{packageData.solution.reporting?.businessKpis?.[0]}</span>
+                      </p>
                     )}
                   </div>
                 </div>

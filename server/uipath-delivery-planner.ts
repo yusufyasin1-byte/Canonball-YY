@@ -1,5 +1,6 @@
 import type { UiPathPackage } from "./types/uipath-package";
 import type {
+  UiPathConnectorRecommendation,
   UiPathDeliveryRecommendation,
   UiPathTestCase,
   UiPathTestSet,
@@ -39,6 +40,114 @@ function countKeywordSignals(haystack: string, keywords: string[]): number {
   return count;
 }
 
+const CONNECTOR_INFERENCE_RULES: Array<{
+  connectorName: string;
+  sourceSystems: string[];
+  keywords: string[];
+  usedActions?: string[];
+}> = [
+  {
+    connectorName: "Microsoft 365",
+    sourceSystems: ["Outlook", "SharePoint", "Teams", "OneDrive"],
+    keywords: ["outlook", "sharepoint", "teams", "onedrive", "microsoft 365", "office 365"],
+    usedActions: ["Send email", "Read list items", "Upload file"],
+  },
+  {
+    connectorName: "Salesforce",
+    sourceSystems: ["Salesforce"],
+    keywords: ["salesforce", "crm object", "lead", "opportunity", "case"],
+    usedActions: ["Get record", "Update record", "Create record"],
+  },
+  {
+    connectorName: "ServiceNow",
+    sourceSystems: ["ServiceNow"],
+    keywords: ["servicenow", "incident", "service request", "ticket"],
+    usedActions: ["Create ticket", "Update incident"],
+  },
+  {
+    connectorName: "SAP",
+    sourceSystems: ["SAP"],
+    keywords: ["sap", "s/4hana", "ecc", "sap gui"],
+    usedActions: ["Invoke BAPI", "Read business object"],
+  },
+  {
+    connectorName: "Workday",
+    sourceSystems: ["Workday"],
+    keywords: ["workday", "worker", "hris", "new joiner"],
+    usedActions: ["Get worker", "Update worker"],
+  },
+  {
+    connectorName: "Coupa",
+    sourceSystems: ["Coupa"],
+    keywords: ["coupa", "purchase order", "invoice", "supplier"],
+    usedActions: ["Get purchase order", "Get invoice", "Create comment"],
+  },
+  {
+    connectorName: "Gmail",
+    sourceSystems: ["Gmail"],
+    keywords: ["gmail", "google mail"],
+    usedActions: ["Send email", "Search messages"],
+  },
+  {
+    connectorName: "Slack",
+    sourceSystems: ["Slack"],
+    keywords: ["slack", "channel", "direct message"],
+    usedActions: ["Post message", "Read channel history"],
+  },
+  {
+    connectorName: "Jira",
+    sourceSystems: ["Jira"],
+    keywords: ["jira", "issue", "epic", "story"],
+    usedActions: ["Create issue", "Update issue"],
+  },
+];
+
+function uniqueSorted(values: string[]): string[] {
+  return Array.from(new Set(values.map((value) => safeText(value)).filter(Boolean))).sort((a, b) => a.localeCompare(b));
+}
+
+function inferConnectorRecommendations(pkg: UiPathPackage, orchestratorArtifacts: any): UiPathConnectorRecommendation[] {
+  const explicitConnectors = safeArray(orchestratorArtifacts?.integrationServiceConnectors)
+    .map((connector: any) => ({
+      connectorName: safeText(connector?.connectorName || connector?.name || connector?.system),
+      sourceSystems: uniqueSorted([
+        connector?.system,
+        connector?.connectionName,
+        connector?.connectorName,
+      ]),
+      rationale: safeText(
+        connector?.description,
+        "Integration Service connector dependency identified in the generated orchestrator artifacts.",
+      ),
+      usedActions: uniqueSorted(safeArray<string>(connector?.usedActions || connector?.usedTriggers)),
+    }))
+    .filter((connector) => connector.connectorName);
+
+  const knownConnectorNames = new Set(explicitConnectors.map((connector) => connector.connectorName.toLowerCase()));
+  const sourceSystems = uniqueSorted([
+    ...safeArray(pkg.internal?.processNodes).map((node: any) => safeText(node?.system)),
+    ...safeArray(orchestratorArtifacts?.processes).map((process: any) => safeText(process?.system)),
+  ]);
+  const corpus = `${safeText(pkg.projectName)} ${safeText(pkg.description)} ${flattenSignalText([
+    pkg.internal?.sddContent,
+    pkg.internal?.processNodes,
+    pkg.workflows,
+    orchestratorArtifacts,
+  ]).join(" ")}`.toLowerCase();
+
+  const inferred = CONNECTOR_INFERENCE_RULES
+    .filter((rule) => !knownConnectorNames.has(rule.connectorName.toLowerCase()))
+    .filter((rule) => rule.keywords.some((keyword) => corpus.includes(keyword)))
+    .map<UiPathConnectorRecommendation>((rule) => ({
+      connectorName: rule.connectorName,
+      sourceSystems: uniqueSorted(sourceSystems.filter((system) => rule.keywords.some((keyword) => system.toLowerCase().includes(keyword)) || rule.sourceSystems.includes(system))),
+      rationale: `The use case references ${rule.sourceSystems.join(", ")} patterns, so the ${rule.connectorName} Integration Service connector should be preferred over custom API plumbing where available.`,
+      usedActions: rule.usedActions,
+    }));
+
+  return [...explicitConnectors, ...inferred];
+}
+
 export function extractUiPathTestDesign(orchestratorArtifacts: any): {
   testCases: UiPathTestCase[];
   testSets: UiPathTestSet[];
@@ -75,7 +184,11 @@ export function recommendUiPathDelivery(params: {
   const storageBucketCount = safeArray(orchestratorArtifacts?.storageBuckets).length;
   const actionCatalogCount = safeArray(orchestratorArtifacts?.actionCenter).length + safeArray(orchestratorArtifacts?.actionCatalogs).length;
   const integrationCount = safeArray(orchestratorArtifacts?.integrationServiceConnectors).length;
+  const triggerCount = safeArray(orchestratorArtifacts?.triggers).length;
+  const appCount = safeArray(orchestratorArtifacts?.apps).length;
+  const dataFabricEntityCount = safeArray(orchestratorArtifacts?.dataFabricEntities).length;
   const sharedResourceCount = queueCount + assetCount + storageBucketCount + actionCatalogCount + integrationCount;
+  const connectorRecommendations = inferConnectorRecommendations(pkg, orchestratorArtifacts);
   const signalCorpus = flattenSignalText([
     pkg.projectName,
     pkg.description,
@@ -168,6 +281,12 @@ export function recommendUiPathDelivery(params: {
   if (integrationCount > 0 || apiSignalCount > 0) {
     recommendedProducts.add("Integration Service");
   }
+  if (dataFabricEntityCount > 0) {
+    recommendedProducts.add("Data Service");
+  }
+  if (appCount > 0) {
+    recommendedProducts.add("Apps");
+  }
   if (queueCount > 0) {
     recommendedProducts.add("Queues");
   }
@@ -201,11 +320,16 @@ export function recommendUiPathDelivery(params: {
     rationale.push("The default recommendation is an unattended robot pattern with Orchestrator-managed execution.");
   }
 
+  if (connectorRecommendations.length > 0) {
+    rationale.push(`Integration Service should be used for ${connectorRecommendations.map((connector) => connector.connectorName).join(", ")} connector dependencies.`);
+  }
+
   return {
     recommendedOutput,
     recommendedModality,
     recommendedExecutionModel,
     recommendedProducts: Array.from(recommendedProducts),
+    connectorRecommendations,
     rationale,
     signals: {
       automationType,
@@ -221,6 +345,9 @@ export function recommendUiPathDelivery(params: {
       appSignalCount,
       apiSignalCount,
       humanInLoopSignalCount,
+      triggerCount,
+      appCount,
+      dataFabricEntityCount,
     },
   };
 }

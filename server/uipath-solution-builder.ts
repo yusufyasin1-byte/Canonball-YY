@@ -6,11 +6,16 @@ import type { IdeaContext } from "./uipath-pipeline";
 import type { UiPathPackage } from "./types/uipath-package";
 import type {
   UiPathDeliveryRecommendation,
+  UiPathExecutiveSummary,
   UiPathNativeSolutionProjectType,
+  UiPathOperatingModelSummary,
+  UiPathReportingSummary,
+  UiPathReleaseReadinessSummary,
   UiPathSolutionArtifact,
   UiPathSolutionComponent,
   UiPathSolutionManifest,
   UiPathSolutionResourceSummary,
+  UiPathTestReleaseSummary,
   UiPathTestCase,
   UiPathTestSet,
 } from "./types/uipath-solution";
@@ -54,6 +59,434 @@ function summarizeResources(orchestratorArtifacts: any): UiPathSolutionResourceS
     processes: safeArray(orchestratorArtifacts?.processes).map((p: any) => String(p?.name || "").trim()).filter(Boolean),
     integrations: safeArray(orchestratorArtifacts?.integrationServiceConnectors).map((c: any) => String(c?.name || c?.system || "").trim()).filter(Boolean),
   };
+}
+
+function safeArray<T = any>(value: any): T[] {
+  return Array.isArray(value) ? value : [];
+}
+
+function buildOperatingModelSummary(params: {
+  orchestratorArtifacts: any;
+  recommendation?: UiPathDeliveryRecommendation;
+}): UiPathOperatingModelSummary {
+  const { orchestratorArtifacts, recommendation } = params;
+  const triggerNames = safeArray(orchestratorArtifacts?.triggers)
+    .map((trigger: any) => String(trigger?.name || "").trim())
+    .filter(Boolean);
+  const connectorNames = [
+    ...safeArray(orchestratorArtifacts?.integrationServiceConnectors).map((connector: any) => String(connector?.connectorName || connector?.name || connector?.system || "").trim()),
+    ...safeArray(recommendation?.connectorRecommendations).map((connector) => connector.connectorName),
+  ].filter(Boolean);
+  const appNames = safeArray(orchestratorArtifacts?.apps)
+    .map((app: any) => String(app?.name || "").trim())
+    .filter(Boolean);
+  const entityNames = safeArray(orchestratorArtifacts?.dataFabricEntities)
+    .map((entity: any) => String(entity?.name || "").trim())
+    .filter(Boolean);
+
+  const runtimeProfile = recommendation?.recommendedExecutionModel === "attended"
+    ? "Attended user-launched execution with Assistant guidance."
+    : recommendation?.recommendedExecutionModel === "hybrid"
+      ? "Hybrid execution with unattended processing plus human review/approval touchpoints."
+      : "Fully unattended Orchestrator-managed execution.";
+
+  const triggerStrategy = triggerNames.length > 0
+    ? `Primary trigger model: ${triggerNames.join(", ")}.`
+    : recommendation?.recommendedModality === "api_workflow"
+      ? "Primary trigger model: API/webhook-led invocation."
+      : "Primary trigger model: orchestrated schedule or manual deployment-time configuration.";
+
+  const recommendedRobotType = recommendation?.recommendedExecutionModel === "attended"
+    ? "Attended / Assistant robot"
+    : recommendation?.recommendedExecutionModel === "hybrid"
+      ? "Unattended robots with Action Center / Apps support"
+      : "Unattended robot";
+
+  const readinessNotes = [
+    "Provision queues, assets, storage buckets, and integration dependencies before go-live.",
+    "Validate deployment gates and contract-integrity checks before release.",
+  ];
+  if (triggerNames.length === 0) readinessNotes.push("No trigger artifact was generated yet — deployment should confirm the production trigger strategy.");
+  if (connectorNames.length > 0) readinessNotes.push(`Integration Service connections required: ${Array.from(new Set(connectorNames)).join(", ")}.`);
+  if (entityNames.length > 0) readinessNotes.push(`Data persistence model includes Data Service entities: ${entityNames.join(", ")}.`);
+  if (appNames.length > 0) readinessNotes.push(`User-facing Apps surfaces expected: ${appNames.join(", ")}.`);
+
+  return {
+    runtimeProfile,
+    recommendedFolderStrategy: "Deploy into a stable solution folder per use case so processes, queues, assets, and tests evolve together.",
+    recommendedRobotType,
+    triggerStrategy,
+    supportModel: "Operations should use deployment reports, validation gates, generated test artifacts, and handoff/governance docs as the primary support pack.",
+    deploymentReadinessNotes: readinessNotes,
+    integrationServiceConnectors: Array.from(new Set(connectorNames)).sort((a, b) => a.localeCompare(b)),
+    apps: Array.from(new Set(appNames)).sort((a, b) => a.localeCompare(b)),
+    dataFabricEntities: Array.from(new Set(entityNames)).sort((a, b) => a.localeCompare(b)),
+    triggerNames: Array.from(new Set(triggerNames)).sort((a, b) => a.localeCompare(b)),
+    governanceArtifacts: ["PDD", "SDD", "DSD", "Developer Handoff Guide", "Test Cases"],
+  };
+}
+
+function renderOperatingModelMarkdown(params: {
+  projectName: string;
+  operatingModel: UiPathOperatingModelSummary;
+  resources: UiPathSolutionResourceSummary;
+}): string {
+  const { projectName, operatingModel, resources } = params;
+  const lines = [
+    `# ${projectName} Operating Model`,
+    "",
+    "## Runtime Profile",
+    operatingModel.runtimeProfile,
+    "",
+    "## Deployment Strategy",
+    operatingModel.recommendedFolderStrategy,
+    "",
+    "## Robot and Trigger Strategy",
+    `- Robot model: ${operatingModel.recommendedRobotType}`,
+    `- Trigger strategy: ${operatingModel.triggerStrategy}`,
+    "",
+    "## Provisioned Resource Surface",
+    `- Queues: ${resources.queues.length > 0 ? resources.queues.join(", ") : "None"}`,
+    `- Assets: ${resources.assets.length > 0 ? resources.assets.join(", ") : "None"}`,
+    `- Storage buckets: ${resources.storageBuckets.length > 0 ? resources.storageBuckets.join(", ") : "None"}`,
+    `- Action Center catalogs: ${resources.actionCatalogs.length > 0 ? resources.actionCatalogs.join(", ") : "None"}`,
+    `- Processes: ${resources.processes.length > 0 ? resources.processes.join(", ") : "None"}`,
+    `- Integration dependencies: ${operatingModel.integrationServiceConnectors.length > 0 ? operatingModel.integrationServiceConnectors.join(", ") : "None"}`,
+    "",
+    "## Deployment Readiness Notes",
+    ...operatingModel.deploymentReadinessNotes.map((note) => `- ${note}`),
+    "",
+    "## Governance and Support Pack",
+    ...operatingModel.governanceArtifacts.map((artifact) => `- ${artifact}`),
+    "",
+    "## Support Model",
+    operatingModel.supportModel,
+    "",
+  ];
+  return lines.join("\n");
+}
+
+function buildReleaseReadinessSummary(params: {
+  recommendation?: UiPathDeliveryRecommendation;
+  operatingModel: UiPathOperatingModelSummary;
+  resources: UiPathSolutionResourceSummary;
+  hasPdd: boolean;
+  hasSdd: boolean;
+  hasDsd: boolean;
+  hasDhg: boolean;
+  testCaseCount: number;
+  testSetCount: number;
+}): UiPathReleaseReadinessSummary {
+  const {
+    recommendation,
+    operatingModel,
+    resources,
+    hasPdd,
+    hasSdd,
+    hasDsd,
+    hasDhg,
+    testCaseCount,
+    testSetCount,
+  } = params;
+
+  let score = 0;
+  const strengths: string[] = [];
+  const outstandingItems: string[] = [];
+  const releaseGates: string[] = [
+    "Workflow Analyzer gate passes",
+    "Contract integrity validation passes",
+    "Deployment target and resources are confirmed",
+  ];
+
+  if (hasPdd) {
+    score += 10;
+    strengths.push("PDD generated");
+  } else {
+    outstandingItems.push("PDD is missing");
+  }
+  if (hasSdd) {
+    score += 15;
+    strengths.push("SDD generated");
+  } else {
+    outstandingItems.push("SDD is missing");
+  }
+  if (hasDsd) {
+    score += 10;
+    strengths.push("DSD generated");
+  } else {
+    outstandingItems.push("DSD is missing");
+  }
+  if (hasDhg) {
+    score += 10;
+    strengths.push("Developer handoff guide present");
+  } else {
+    outstandingItems.push("Developer handoff guide is missing");
+  }
+  if (resources.queues.length + resources.assets.length + resources.storageBuckets.length + resources.actionCatalogs.length + resources.integrations.length > 0) {
+    score += 15;
+    strengths.push("Deployment resource model defined");
+  } else {
+    outstandingItems.push("No deployment resources were defined");
+  }
+  if (testCaseCount > 0) {
+    score += 15;
+    strengths.push(`${testCaseCount} generated test case(s)`);
+    releaseGates.push("Test automation artifacts are published and linked in Test Manager");
+  } else {
+    outstandingItems.push("No generated test cases found");
+  }
+  if (testSetCount > 0) {
+    score += 5;
+    strengths.push(`${testSetCount} generated test set(s)`);
+  } else {
+    outstandingItems.push("No generated test sets found");
+  }
+  if ((operatingModel.deploymentReadinessNotes?.length ?? 0) > 0) {
+    score += 10;
+    strengths.push("Operating model and deployment-readiness notes generated");
+  }
+  if ((recommendation?.connectorRecommendations.length ?? 0) > 0 || resources.integrations.length > 0) {
+    score += 10;
+    strengths.push("Integration dependency model captured");
+  }
+
+  score = Math.min(score, 100);
+  const status: UiPathReleaseReadinessSummary["status"] =
+    score >= 80 ? "ready" : score >= 60 ? "mostly_ready" : "needs_work";
+
+  return {
+    score,
+    status,
+    strengths,
+    outstandingItems,
+    releaseGates,
+  };
+}
+
+function renderGovernancePackMarkdown(params: {
+  projectName: string;
+  operatingModel: UiPathOperatingModelSummary;
+  releaseReadiness: UiPathReleaseReadinessSummary;
+}): string {
+  const { projectName, operatingModel, releaseReadiness } = params;
+  const lines = [
+    `# ${projectName} Governance Pack`,
+    "",
+    "## Release Readiness",
+    `- Score: ${releaseReadiness.score}/100`,
+    `- Status: ${releaseReadiness.status}`,
+    "",
+    "## Strengths",
+    ...releaseReadiness.strengths.map((item) => `- ${item}`),
+    "",
+    "## Outstanding Items",
+    ...(releaseReadiness.outstandingItems.length > 0
+      ? releaseReadiness.outstandingItems.map((item) => `- ${item}`)
+      : ["- No major outstanding items were identified in the generated pack."]),
+    "",
+    "## Release Gates",
+    ...releaseReadiness.releaseGates.map((gate) => `- ${gate}`),
+    "",
+    "## Operating Model References",
+    `- Runtime profile: ${operatingModel.runtimeProfile}`,
+    `- Trigger strategy: ${operatingModel.triggerStrategy}`,
+    `- Support model: ${operatingModel.supportModel}`,
+    "",
+  ];
+  return lines.join("\n");
+}
+
+function buildTestReleaseSummary(params: {
+  projectName: string;
+  testCases: UiPathTestCase[];
+  testSets: UiPathTestSet[];
+  recommendation?: UiPathDeliveryRecommendation;
+}): UiPathTestReleaseSummary {
+  const { projectName, testCases, testSets, recommendation } = params;
+  const smokeTestSet = testSets.find((testSet) => /smoke|happy path/i.test(testSet.name));
+  const automatedCoveragePercent = testCases.length > 0 ? 100 : 0;
+  const nextActions = [
+    "Publish the generated UiPath Tests project to Orchestrator.",
+    "Link the packaged automations to the generated Test Manager cases.",
+    "Execute the smoke test set after deployment and capture the result in the release report.",
+  ];
+  if ((recommendation?.recommendedOutput || "package") === "solution") {
+    nextActions.unshift("Deploy the native solution bundle before executing the linked test set.");
+  }
+
+  return {
+    projectName,
+    smokeTestSetName: smokeTestSet?.name,
+    automatedCoveragePercent,
+    nextActions,
+  };
+}
+
+function renderTestReleasePlanMarkdown(params: {
+  projectName: string;
+  testRelease: UiPathTestReleaseSummary;
+  testCases: UiPathTestCase[];
+  testSets: UiPathTestSet[];
+}): string {
+  const { projectName, testRelease, testCases, testSets } = params;
+  const lines = [
+    `# ${projectName} Test Release Plan`,
+    "",
+    `- Automated coverage: ${testRelease.automatedCoveragePercent}%`,
+    `- Smoke test set: ${testRelease.smokeTestSetName || "Not identified"}`,
+    "",
+    "## Test Assets",
+    `- Test cases: ${testCases.length}`,
+    `- Test sets: ${testSets.length}`,
+    "",
+    "## Release Actions",
+    ...testRelease.nextActions.map((action) => `- ${action}`),
+    "",
+  ];
+  return lines.join("\n");
+}
+
+function buildReportingSummary(params: {
+  projectName: string;
+  resources: UiPathSolutionResourceSummary;
+  recommendation?: UiPathDeliveryRecommendation;
+  operatingModel: UiPathOperatingModelSummary;
+}): UiPathReportingSummary {
+  const { projectName, resources, recommendation, operatingModel } = params;
+  const businessKpis = [
+    `${projectName} straight-through processing rate`,
+    `${projectName} exception volume by category`,
+    `${projectName} average cycle time`,
+  ];
+  const operationalKpis = [
+    "Job success/failure rate",
+    "Trigger execution timeliness",
+    "Queue backlog and retry count",
+  ];
+  if (resources.actionCatalogs.length > 0) {
+    operationalKpis.push("Action Center aging / SLA breaches");
+  }
+  if (resources.integrations.length > 0 || (recommendation?.connectorRecommendations.length ?? 0) > 0) {
+    operationalKpis.push("Connector/API failure rate");
+  }
+  const dashboards = [
+    "Operational run dashboard in UiPath Insights",
+    "Business outcome dashboard for process owners",
+  ];
+  const alerts = [
+    "Deployment gate failure alert",
+    "Smoke test failure alert",
+    "Trigger stopped / disabled alert",
+  ];
+  if (operatingModel.triggerNames.length > 0) {
+    alerts.push(`Trigger monitoring for: ${operatingModel.triggerNames.join(", ")}`);
+  }
+
+  return { businessKpis, operationalKpis, dashboards, alerts };
+}
+
+function renderInsightsPlanMarkdown(params: {
+  projectName: string;
+  reporting: UiPathReportingSummary;
+}): string {
+  const { projectName, reporting } = params;
+  const lines = [
+    `# ${projectName} Reporting and Insights Plan`,
+    "",
+    "## Business KPIs",
+    ...reporting.businessKpis.map((item) => `- ${item}`),
+    "",
+    "## Operational KPIs",
+    ...reporting.operationalKpis.map((item) => `- ${item}`),
+    "",
+    "## Recommended Dashboards",
+    ...reporting.dashboards.map((item) => `- ${item}`),
+    "",
+    "## Alerts",
+    ...reporting.alerts.map((item) => `- ${item}`),
+    "",
+  ];
+  return lines.join("\n");
+}
+
+function buildExecutiveSummary(params: {
+  projectName: string;
+  recommendation?: UiPathDeliveryRecommendation;
+  operatingModel: UiPathOperatingModelSummary;
+  releaseReadiness: UiPathReleaseReadinessSummary;
+  testRelease: UiPathTestReleaseSummary;
+  reporting: UiPathReportingSummary;
+  hasPdd: boolean;
+  hasSdd: boolean;
+  hasDsd: boolean;
+}): UiPathExecutiveSummary {
+  const {
+    projectName,
+    recommendation,
+    operatingModel,
+    releaseReadiness,
+    testRelease,
+    reporting,
+    hasPdd,
+    hasSdd,
+    hasDsd,
+  } = params;
+
+  const lifecycleCoverage = [
+    "Discover through generated process and business context documents",
+    "Design through template-aligned PDD / SDD / DSD outputs",
+    `Generate through ${recommendation?.recommendedOutput || "package"}-ready UiPath artifacts`,
+    "Validate through Workflow Analyzer and contract-integrity gates",
+    "Deploy through package or native solution deployment paths",
+    "Test through generated Test Manager-ready test cases, sets, and executable test automation artifacts",
+    "Operate through deployment reports, operating model guidance, and KPI recommendations",
+  ];
+
+  const keyOutputs = [
+    hasPdd ? "PDD generated" : "PDD pending",
+    hasSdd ? "SDD generated" : "SDD pending",
+    hasDsd ? "DSD generated" : "DSD pending",
+    `Release readiness scored at ${releaseReadiness.score}/100`,
+    `Automated test coverage pack at ${testRelease.automatedCoveragePercent}%`,
+    `Primary KPI recommendation: ${reporting.businessKpis[0]}`,
+  ];
+
+  const deploymentStory = [
+    operatingModel.runtimeProfile,
+    operatingModel.recommendedFolderStrategy,
+    `Recommended UiPath modality: ${recommendation?.recommendedModality || "unattended_robot"}`,
+    `Recommended release path includes smoke validation via ${testRelease.smokeTestSetName || "the generated smoke set"}.`,
+  ];
+
+  return {
+    overview: `${projectName} can move from use case intake to deployable, testable automation through a single Canonball delivery flow with explicit document, deployment, and testing outputs.`,
+    lifecycleCoverage,
+    keyOutputs,
+    deploymentStory,
+  };
+}
+
+function renderExecutiveSummaryMarkdown(params: {
+  projectName: string;
+  executiveSummary: UiPathExecutiveSummary;
+}): string {
+  const { projectName, executiveSummary } = params;
+  const lines = [
+    `# ${projectName} Executive Summary`,
+    "",
+    executiveSummary.overview,
+    "",
+    "## Lifecycle Coverage",
+    ...executiveSummary.lifecycleCoverage.map((item) => `- ${item}`),
+    "",
+    "## Key Outputs",
+    ...executiveSummary.keyOutputs.map((item) => `- ${item}`),
+    "",
+    "## Deployment Story",
+    ...executiveSummary.deploymentStory.map((item) => `- ${item}`),
+    "",
+  ];
+  return lines.join("\n");
 }
 
 function buildProjectDescriptor(projectName: string): string {
@@ -457,6 +890,44 @@ export function buildUiPathSolutionArtifact(params: {
   const processKey = randomUUID();
   const orchestratorArtifacts = pkg.internal?.orchestratorArtifacts || pkg.internal?.extractedArtifacts || {};
   const resources = summarizeResources(orchestratorArtifacts);
+  const operatingModel = buildOperatingModelSummary({
+    orchestratorArtifacts,
+    recommendation: deliveryRecommendation,
+  });
+  const releaseReadiness = buildReleaseReadinessSummary({
+    recommendation: deliveryRecommendation,
+    operatingModel,
+    resources,
+    hasPdd: Boolean(ctx.pdd?.content),
+    hasSdd: Boolean(ctx.sdd?.content),
+    hasDsd: Boolean(ctx.dsd?.content),
+    hasDhg: Boolean(dhgContent),
+    testCaseCount: testCases.length,
+    testSetCount: testSets.length,
+  });
+  const testRelease = buildTestReleaseSummary({
+    projectName,
+    testCases,
+    testSets,
+    recommendation: deliveryRecommendation,
+  });
+  const reporting = buildReportingSummary({
+    projectName,
+    resources,
+    recommendation: deliveryRecommendation,
+    operatingModel,
+  });
+  const executiveSummary = buildExecutiveSummary({
+    projectName,
+    recommendation: deliveryRecommendation,
+    operatingModel,
+    releaseReadiness,
+    testRelease,
+    reporting,
+    hasPdd: Boolean(ctx.pdd?.content),
+    hasSdd: Boolean(ctx.sdd?.content),
+    hasDsd: Boolean(ctx.dsd?.content),
+  });
 
   const components: UiPathSolutionComponent[] = [
     {
@@ -511,6 +982,36 @@ export function buildUiPathSolutionArtifact(params: {
       description: "Generated validation scenarios derived from the use case artifacts",
     });
   }
+  components.push({
+    type: "documentation",
+    name: "OperatingModel",
+    path: `${projectFolder}/docs/OperatingModel.md`,
+    description: "Generated operating model and deployment-readiness guide for the automation.",
+  });
+  components.push({
+    type: "documentation",
+    name: "GovernancePack",
+    path: `${projectFolder}/docs/GovernancePack.md`,
+    description: "Generated governance and release-readiness summary for enterprise deployment.",
+  });
+  components.push({
+    type: "documentation",
+    name: "TestReleasePlan",
+    path: `${projectFolder}/docs/TestReleasePlan.md`,
+    description: "Generated Test Manager-first release plan for publishing, linking, and smoke validation.",
+  });
+  components.push({
+    type: "documentation",
+    name: "InsightsPlan",
+    path: `${projectFolder}/docs/InsightsPlan.md`,
+    description: "Generated reporting and Insights KPI plan for operations and business stakeholders.",
+  });
+  components.push({
+    type: "documentation",
+    name: "ExecutiveSummary",
+    path: `${projectFolder}/docs/ExecutiveSummary.md`,
+    description: "Generated executive summary of the end-to-end delivery capability for this use case.",
+  });
 
   const queues = Array.isArray(orchestratorArtifacts?.queues) ? orchestratorArtifacts.queues : [];
   for (const queue of queues) {
@@ -573,6 +1074,11 @@ export function buildUiPathSolutionArtifact(params: {
       ],
     },
     recommendation: deliveryRecommendation,
+    operatingModel,
+    releaseReadiness,
+    testRelease,
+    reporting,
+    executiveSummary,
     testCases,
     testSets,
     components,
@@ -624,6 +1130,26 @@ export function buildUiPathSolutionArtifact(params: {
       Buffer.from(JSON.stringify({ testCases, testSets }, null, 2), "utf8"),
     );
   }
+  zip.addFile(
+    `${projectFolder}/docs/OperatingModel.md`,
+    Buffer.from(renderOperatingModelMarkdown({ projectName, operatingModel, resources }), "utf8"),
+  );
+  zip.addFile(
+    `${projectFolder}/docs/GovernancePack.md`,
+    Buffer.from(renderGovernancePackMarkdown({ projectName, operatingModel, releaseReadiness }), "utf8"),
+  );
+  zip.addFile(
+    `${projectFolder}/docs/TestReleasePlan.md`,
+    Buffer.from(renderTestReleasePlanMarkdown({ projectName, testRelease, testCases, testSets }), "utf8"),
+  );
+  zip.addFile(
+    `${projectFolder}/docs/InsightsPlan.md`,
+    Buffer.from(renderInsightsPlanMarkdown({ projectName, reporting }), "utf8"),
+  );
+  zip.addFile(
+    `${projectFolder}/docs/ExecutiveSummary.md`,
+    Buffer.from(renderExecutiveSummaryMarkdown({ projectName, executiveSummary }), "utf8"),
+  );
 
   const resourceBase = resourceFileBase(projectName);
   zip.addFile(

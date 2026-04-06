@@ -518,6 +518,12 @@ interface UiPathSolutionMeta {
     recommendedModality: "unattended_robot" | "attended_assistant" | "app_fronted_process" | "agent_orchestrated" | "api_workflow";
     recommendedExecutionModel: "unattended" | "attended" | "hybrid";
     recommendedProducts: string[];
+    connectorRecommendations: Array<{
+      connectorName: string;
+      sourceSystems: string[];
+      rationale: string;
+      usedActions?: string[];
+    }>;
     rationale: string[];
     signals: {
       automationType: string;
@@ -533,7 +539,48 @@ interface UiPathSolutionMeta {
       appSignalCount: number;
       apiSignalCount: number;
       humanInLoopSignalCount: number;
+      triggerCount: number;
+      appCount: number;
+      dataFabricEntityCount: number;
     };
+  } | null;
+  operatingModel?: {
+    runtimeProfile: string;
+    recommendedFolderStrategy: string;
+    recommendedRobotType: string;
+    triggerStrategy: string;
+    supportModel: string;
+    deploymentReadinessNotes: string[];
+    integrationServiceConnectors: string[];
+    apps: string[];
+    dataFabricEntities: string[];
+    triggerNames: string[];
+    governanceArtifacts: string[];
+  } | null;
+  releaseReadiness?: {
+    score: number;
+    status: "ready" | "mostly_ready" | "needs_work";
+    strengths: string[];
+    outstandingItems: string[];
+    releaseGates: string[];
+  } | null;
+  testRelease?: {
+    projectName: string;
+    smokeTestSetName?: string;
+    automatedCoveragePercent: number;
+    nextActions: string[];
+  } | null;
+  reporting?: {
+    businessKpis: string[];
+    operationalKpis: string[];
+    dashboards: string[];
+    alerts: string[];
+  } | null;
+  executiveSummary?: {
+    overview: string;
+    lifecycleCoverage: string[];
+    keyOutputs: string[];
+    deploymentStory: string[];
   } | null;
   testCases?: Array<{
     name: string;
@@ -979,9 +1026,57 @@ export function UiPathPackageCard({ packageData, ideaId, onDeployProgress, onDep
                     UiPath products: <span className="font-medium text-foreground">{artifactMeta.solution.recommendation.recommendedProducts.join(", ")}</span>
                   </p>
                 )}
+                {artifactMeta.solution.recommendation.connectorRecommendations.length > 0 && (
+                  <p>
+                    Recommended connectors: <span className="font-medium text-foreground">{artifactMeta.solution.recommendation.connectorRecommendations.map((connector) => connector.connectorName).join(", ")}</span>
+                  </p>
+                )}
                 {artifactMeta.solution.recommendation.rationale.map((reason, index) => (
                   <p key={index}>• {reason}</p>
                 ))}
+              </div>
+            )}
+            {artifactMeta.solution.operatingModel && (
+              <div className="text-[10px] text-muted-foreground space-y-1">
+                <p>
+                  Runtime profile: <span className="font-medium text-foreground">{artifactMeta.solution.operatingModel.runtimeProfile}</span>
+                </p>
+                <p>
+                  Trigger strategy: <span className="font-medium text-foreground">{artifactMeta.solution.operatingModel.triggerStrategy}</span>
+                </p>
+                {artifactMeta.solution.operatingModel.deploymentReadinessNotes.length > 0 && (
+                  <p>
+                    Deployment readiness: <span className="font-medium text-foreground">{artifactMeta.solution.operatingModel.deploymentReadinessNotes[0]}</span>
+                  </p>
+                )}
+              </div>
+            )}
+            {artifactMeta.solution.releaseReadiness && (
+              <div className="text-[10px] text-muted-foreground space-y-1">
+                <p>
+                  Release readiness: <span className="font-medium text-foreground">{artifactMeta.solution.releaseReadiness.score}/100 ({artifactMeta.solution.releaseReadiness.status})</span>
+                </p>
+              </div>
+            )}
+            {artifactMeta.solution.executiveSummary?.overview && (
+              <div className="text-[10px] text-muted-foreground space-y-1">
+                <p>
+                  Executive summary: <span className="font-medium text-foreground">{artifactMeta.solution.executiveSummary.overview}</span>
+                </p>
+              </div>
+            )}
+            {artifactMeta.solution.testRelease?.smokeTestSetName && (
+              <div className="text-[10px] text-muted-foreground space-y-1">
+                <p>
+                  Smoke release test: <span className="font-medium text-foreground">{artifactMeta.solution.testRelease.smokeTestSetName}</span>
+                </p>
+              </div>
+            )}
+            {(artifactMeta.solution.reporting?.businessKpis?.length ?? 0) > 0 && (
+              <div className="text-[10px] text-muted-foreground space-y-1">
+                <p>
+                  Primary KPI: <span className="font-medium text-foreground">{artifactMeta.solution.reporting?.businessKpis?.[0]}</span>
+                </p>
               </div>
             )}
           </div>

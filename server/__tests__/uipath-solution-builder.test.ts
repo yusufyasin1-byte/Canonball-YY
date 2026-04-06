@@ -50,6 +50,14 @@ describe("UiPath solution builder", () => {
       recommendedModality: "app_fronted_process",
       recommendedExecutionModel: "hybrid",
       recommendedProducts: ["Orchestrator", "Apps", "Queues"],
+      connectorRecommendations: [
+        {
+          connectorName: "Microsoft 365",
+          sourceSystems: ["Outlook", "SharePoint"],
+          rationale: "Use the Microsoft 365 connector family for mail and document interactions.",
+          usedActions: ["Send email", "Upload file"],
+        },
+      ],
       rationale: ["Multiple shared resources were found."],
       signals: {
         automationType: "hybrid",
@@ -65,6 +73,9 @@ describe("UiPath solution builder", () => {
         appSignalCount: 2,
         apiSignalCount: 0,
         humanInLoopSignalCount: 1,
+        triggerCount: 0,
+        appCount: 0,
+        dataFabricEntityCount: 0,
       },
     };
 
@@ -107,6 +118,13 @@ describe("UiPath solution builder", () => {
     expect(artifact.manifest.automationType).toBe("hybrid");
     expect(artifact.manifest.deliveryMode).toBe("native_uis");
     expect(artifact.manifest.recommendation?.recommendedOutput).toBe("solution");
+    expect(artifact.manifest.recommendation?.connectorRecommendations.map((connector) => connector.connectorName)).toContain("Microsoft 365");
+    expect(artifact.manifest.operatingModel?.governanceArtifacts).toContain("DSD");
+    expect(artifact.manifest.releaseReadiness?.score).toBeGreaterThan(70);
+    expect(artifact.manifest.testRelease?.automatedCoveragePercent).toBe(100);
+    expect(artifact.manifest.reporting?.businessKpis[0]).toContain("InvoiceAutomation");
+    expect(artifact.manifest.executiveSummary?.overview).toContain("InvoiceAutomation");
+    expect(artifact.manifest.executiveSummary?.lifecycleCoverage).toContain("Deploy through package or native solution deployment paths");
     expect(artifact.manifest.testCases).toHaveLength(1);
     expect(artifact.manifest.resources.queues).toEqual(["InvoiceQueue"]);
     expect(artifact.manifest.resources.assets).toEqual(["Asset.ApiKey"]);
@@ -125,6 +143,11 @@ describe("UiPath solution builder", () => {
     expect(entryNames).toContain("InvoiceAutomation/docs/DSD.md");
     expect(entryNames).toContain("InvoiceAutomation/docs/TestCases.md");
     expect(entryNames).toContain("InvoiceAutomation/docs/TestCases.json");
+    expect(entryNames).toContain("InvoiceAutomation/docs/OperatingModel.md");
+    expect(entryNames).toContain("InvoiceAutomation/docs/GovernancePack.md");
+    expect(entryNames).toContain("InvoiceAutomation/docs/TestReleasePlan.md");
+    expect(entryNames).toContain("InvoiceAutomation/docs/InsightsPlan.md");
+    expect(entryNames).toContain("InvoiceAutomation/docs/ExecutiveSummary.md");
     expect(entryNames).toContain("resources/solution_folder/package/InvoiceAutomation.json");
     expect(entryNames).toContain("resources/solution_folder/process/process/InvoiceAutomation.json");
     expect(entryNames).toContain("resources/solution_folder/queue/InvoiceQueue.json");
@@ -164,5 +187,26 @@ describe("UiPath solution builder", () => {
     const testCasesMarkdown = zip.readAsText("InvoiceAutomation/docs/TestCases.md");
     expect(testCasesMarkdown).toContain("TC001 - Happy path");
     expect(testCasesMarkdown).toContain("Queue item created");
+
+    const operatingModelMarkdown = zip.readAsText("InvoiceAutomation/docs/OperatingModel.md");
+    expect(operatingModelMarkdown).toContain("Operating Model");
+    expect(operatingModelMarkdown).toContain("Deployment Readiness Notes");
+
+    const governancePackMarkdown = zip.readAsText("InvoiceAutomation/docs/GovernancePack.md");
+    expect(governancePackMarkdown).toContain("Release Readiness");
+    expect(governancePackMarkdown).toContain("Release Gates");
+
+    const testReleasePlanMarkdown = zip.readAsText("InvoiceAutomation/docs/TestReleasePlan.md");
+    expect(testReleasePlanMarkdown).toContain("Smoke test set");
+    expect(testReleasePlanMarkdown).toContain("Release Actions");
+
+    const insightsPlanMarkdown = zip.readAsText("InvoiceAutomation/docs/InsightsPlan.md");
+    expect(insightsPlanMarkdown).toContain("Business KPIs");
+    expect(insightsPlanMarkdown).toContain("Alerts");
+
+    const executiveSummaryMarkdown = zip.readAsText("InvoiceAutomation/docs/ExecutiveSummary.md");
+    expect(executiveSummaryMarkdown).toContain("Executive Summary");
+    expect(executiveSummaryMarkdown).toContain("Lifecycle Coverage");
+    expect(executiveSummaryMarkdown).toContain("Deployment Story");
   });
 });
