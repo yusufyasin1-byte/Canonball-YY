@@ -1171,7 +1171,7 @@ async function provisionTriggers(
         }
         if (alreadyExists) continue;
 
-        let queueId: number | null = null;
+        let queueId: number | string | null = null;
         const qr = queueResults.find(q => q.name === t.queueName);
         if (qr?.id) {
           queueId = qr.id;
@@ -2284,7 +2284,7 @@ async function provisionTestCases(
               projectId = match.Id || match.id;
               projectPrefix = match.Prefix || match.prefix || match.ProjectPrefix || match.projectPrefix || null;
               console.log(`[UiPath Deploy] Match found: project "${match.Name || match.name}" (ID: ${projectId}) — reusing existing project`);
-              results.push({ artifact: "Test Project", name: match.Name || match.name, status: "exists", message: `Using existing project "${match.Name || match.name}" (ID: ${projectId}, Prefix: ${projectPrefix})`, id: typeof projectId === "string" ? Number.parseInt(projectId, 10) : projectId });
+              results.push({ artifact: "Test Project", name: match.Name || match.name, status: "exists", message: `Using existing project "${match.Name || match.name}" (ID: ${projectId}, Prefix: ${projectPrefix})`, id: projectId ?? undefined });
             } else {
               const projectNames = projects.map((p: any) => p.Name || p.name).join(", ");
               console.log(`[UiPath Deploy] No project match for "${normalizedProcessName}" (stripped: "${strippedProcessName}") among ${projects.length} project(s): [${projectNames}] — will create new project`);
@@ -2420,7 +2420,7 @@ async function provisionTestCases(
             if (match) {
               projectId = match.Id || match.id;
               projectPrefix = match.Prefix || match.prefix || match.ProjectPrefix || match.projectPrefix || null;
-              results.push({ artifact: "Test Project", name: match.Name || match.name, status: "exists", message: `Project exists (ID: ${projectId}, Prefix: ${projectPrefix})`, id: typeof projectId === "string" ? Number.parseInt(projectId, 10) : projectId });
+              results.push({ artifact: "Test Project", name: match.Name || match.name, status: "exists", message: `Project exists (ID: ${projectId}, Prefix: ${projectPrefix})`, id: projectId ?? undefined });
             } else {
               console.log(`[UiPath Deploy] 409 re-list: no name match for "${projName}" among ${projects.length} project(s) — will attempt prefix-retry fallback`);
             }
@@ -2452,7 +2452,7 @@ async function provisionTestCases(
               if (retryCreation.valid && (retryCreation.data?.Id || retryCreation.data?.id)) {
                 projectId = retryCreation.data.Id || retryCreation.data.id;
                 projectPrefix = retryCreation.data.Prefix || retryCreation.data.prefix || retryCreation.data.ProjectPrefix || retryCreation.data.projectPrefix || retryPrefix;
-                results.push({ artifact: "Test Project", name: projName, status: "created", message: `Created test project "${projName}" (ID: ${projectId}, Prefix: ${projectPrefix}) after prefix-collision retry`, id: typeof projectId === "string" ? Number.parseInt(projectId, 10) : projectId });
+                results.push({ artifact: "Test Project", name: projName, status: "created", message: `Created test project "${projName}" (ID: ${projectId}, Prefix: ${projectPrefix}) after prefix-collision retry`, id: projectId ?? undefined });
               }
             }
             if (!projectId) {

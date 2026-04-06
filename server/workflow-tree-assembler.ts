@@ -1631,7 +1631,7 @@ function assembleTryCatchNode(
     for (const child of node.tryChildren) {
       if (child.kind === "activity" && child.properties) {
         const sys = child.properties.Application || child.properties.BrowserType || child.properties.Target || child.properties.WorkflowFileName || "";
-        if (sys) targetSystemHints.push(sys);
+        if (typeof sys === "string" && sys.trim()) targetSystemHints.push(sys);
       }
     }
     const systemNote = targetSystemHints.length > 0 ? ` Target system: ${targetSystemHints.join(", ")}.` : "";

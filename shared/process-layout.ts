@@ -258,7 +258,7 @@ export function computeProcessAwareLayout(
     trunk.push(current);
     trunkSet.add(current);
 
-    const outs = (outEdges.get(current) || []).filter(e => !backEdges.has(`${current}->${e.target}`));
+    const outs: LayoutEdgeInput[] = (outEdges.get(current) || []).filter((e: LayoutEdgeInput) => !backEdges.has(`${current}->${e.target}`));
     if (outs.length === 0) break;
 
     const node = nodeMap.get(current);
@@ -272,7 +272,7 @@ export function computeProcessAwareLayout(
         let bestEdge: LayoutEdgeInput | null = null;
         let bestSize = -1;
         let bestIsYes = false;
-        for (const edge of outs) {
+        for (const edge of outs as LayoutEdgeInput[]) {
           const size = countSubtreeSize(edge.target, outEdges, current, backEdges);
           const edgeIsYes = isYesLabel(edge.label);
           const edgeIsNo = isNoLabel(edge.label);
@@ -295,9 +295,9 @@ export function computeProcessAwareLayout(
         current = outs[0].target;
       } else {
         const targetsByOrder = outs
-          .map((e) => ({ edge: e, node: nodeMap.get(e.target) }))
-          .filter((x) => x.node)
-          .sort((a, b) => (a.node!.orderIndex - b.node!.orderIndex));
+          .map((e: LayoutEdgeInput) => ({ edge: e, node: nodeMap.get(e.target) }))
+          .filter((x: { edge: LayoutEdgeInput; node: LayoutInput | undefined }) => x.node)
+          .sort((a: { edge: LayoutEdgeInput; node: LayoutInput | undefined }, b: { edge: LayoutEdgeInput; node: LayoutInput | undefined }) => (a.node!.orderIndex - b.node!.orderIndex));
         current = targetsByOrder.length > 0 ? targetsByOrder[0].edge.target : outs[0].target;
       }
     }
@@ -309,7 +309,7 @@ export function computeProcessAwareLayout(
 
   let branchCount = 0;
   for (const trunkNodeId of trunk) {
-    const outs = (outEdges.get(trunkNodeId) || []).filter(e => !backEdges.has(`${trunkNodeId}->${e.target}`));
+    const outs = (outEdges.get(trunkNodeId) || []).filter((e: LayoutEdgeInput) => !backEdges.has(`${trunkNodeId}->${e.target}`));
     for (const edge of outs) {
       if (!trunkSet.has(edge.target)) branchCount++;
     }
@@ -354,7 +354,7 @@ export function computeProcessAwareLayout(
 
   const branchReconnections = new Map<string, { decisionId: string; reconnectTrunkIdx: number; side: "right" | "left" }[]>();
   for (const trunkNodeId of trunk) {
-    const outs = (outEdges.get(trunkNodeId) || []).filter(e => !backEdges.has(`${trunkNodeId}->${e.target}`));
+    const outs = (outEdges.get(trunkNodeId) || []).filter((e: LayoutEdgeInput) => !backEdges.has(`${trunkNodeId}->${e.target}`));
     if (outs.length < 2) continue;
     const node = nodeMap.get(trunkNodeId);
     const isDecision = node && (node.nodeType === "decision" || node.nodeType === "agent-decision");
@@ -403,7 +403,7 @@ export function computeProcessAwareLayout(
   let cumulativeLeftOffset = 0;
 
   for (const trunkNodeId of trunk) {
-    const outs = (outEdges.get(trunkNodeId) || []).filter(e => !backEdges.has(`${trunkNodeId}->${e.target}`));
+    const outs = (outEdges.get(trunkNodeId) || []).filter((e: LayoutEdgeInput) => !backEdges.has(`${trunkNodeId}->${e.target}`));
     if (outs.length < 2) continue;
 
     const node = nodeMap.get(trunkNodeId);
@@ -515,14 +515,14 @@ export function computeProcessAwareLayout(
       positions.set(currentId, { x: branchX - dims.width / 2, y: branchY });
       branchY += dims.height + verticalGap;
 
-      const outs = (outEdges.get(currentId) || []).filter(e => !backEdges.has(`${currentId}->${e.target}`));
+      const outs: LayoutEdgeInput[] = (outEdges.get(currentId) || []).filter((e: LayoutEdgeInput) => !backEdges.has(`${currentId}->${e.target}`));
       if (outs.length === 0) break;
 
       const isDecision = node.nodeType === "decision" || node.nodeType === "agent-decision";
       if (isDecision && outs.length >= 2) {
         let leftIdx = 0;
         let rightIdx = 0;
-        for (const edge of outs) {
+        for (const edge of outs as LayoutEdgeInput[]) {
           if (!positions.has(edge.target) && !trunkSet.has(edge.target)) {
             let edgeSide: "left" | "right";
             if (isNoLabel(edge.label)) {
@@ -556,7 +556,7 @@ export function computeProcessAwareLayout(
         }
         break;
       } else {
-        const nextEdge = outs.find((e) => !positions.has(e.target) && !trunkSet.has(e.target));
+      const nextEdge = outs.find((e: LayoutEdgeInput) => !positions.has(e.target) && !trunkSet.has(e.target));
         if (nextEdge) {
           currentId = nextEdge.target;
         } else {

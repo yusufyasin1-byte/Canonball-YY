@@ -47,6 +47,22 @@ function extractOrgSlug(input: string): string {
   return val.trim();
 }
 
+type DeployPackagePayload = {
+  buffer: Buffer;
+  gaps: Array<import("./xaml-generator").XamlGap>;
+  usedPackages: string[];
+  cacheHit?: boolean;
+  qualityGateResult?: import("./uipath-quality-gate").QualityGateResult;
+  xamlEntries: { name: string; content: string }[];
+  dependencyMap: Record<string, string>;
+  archiveManifest: string[];
+  usedFallbackStubs: boolean;
+  generationMode: import("./uipath-integration").GenerationMode;
+  referencedMLSkillNames: string[];
+  usedAIFallback: boolean;
+  analysisReports?: Array<{ fileName: string; report: import("./workflow-analyzer").AnalysisReport }>;
+};
+
 function getWorkflowAnalyzerGateFailure(prebuiltResult: any): {
   blocked: boolean;
   summary?: string;
@@ -748,7 +764,7 @@ export function registerUiPathRoutes(app: Express): void {
     try {
       sendEvent({ deployStatus: "Preparing package for deployment..." });
 
-      let prebuiltResult;
+      let prebuiltResult: DeployPackagePayload;
       const cachedPipeline = getCachedPipelineResult(ideaId);
       if (cachedPipeline) {
         console.log(`[UiPath Deploy] Using cached pipeline result for ${ideaId}`);

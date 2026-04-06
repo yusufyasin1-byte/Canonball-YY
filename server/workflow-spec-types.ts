@@ -30,7 +30,9 @@ export const ActivityNodeSchema = z.object({
 
 export type ActivityNode = z.infer<typeof ActivityNodeSchema>;
 
-const BaseWorkflowNodeSchema = z.discriminatedUnion("kind", [
+let WorkflowNodeSchema: z.ZodTypeAny;
+
+const BaseWorkflowNodeSchema: z.ZodTypeAny = z.discriminatedUnion("kind", [
   ActivityNodeSchema,
   z.object({
     kind: z.literal("sequence"),
@@ -75,7 +77,8 @@ const BaseWorkflowNodeSchema = z.discriminatedUnion("kind", [
   }),
 ]);
 
-export const WorkflowNodeSchema: z.ZodType<WorkflowNode> = z.lazy(() => BaseWorkflowNodeSchema);
+WorkflowNodeSchema = z.lazy((): z.ZodTypeAny => BaseWorkflowNodeSchema);
+export { WorkflowNodeSchema };
 
 export type SequenceNode = {
   kind: "sequence";

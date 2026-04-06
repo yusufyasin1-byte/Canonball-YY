@@ -1598,7 +1598,7 @@ export function registerDocumentRoutes(app: Express): void {
       const docChildren: (Paragraph | Table)[] = [];
 
       const ORANGE = "E8450A";
-      const getTemplateSectionList = (docType: string): string[] | null => {
+      const getTemplateSectionList = (docType: string): readonly string[] | null => {
         if (docType === "PDD") return PDD_TEMPLATE_SECTIONS;
         if (docType === "SDD") return SDD_TEMPLATE_SECTIONS;
         if (docType === "DSD") return DSD_TEMPLATE_SECTIONS;

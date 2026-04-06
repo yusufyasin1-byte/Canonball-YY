@@ -1511,6 +1511,7 @@ export function normalizeXaml(rawXaml: string, targetFramework: TargetFramework 
       positiveEvidence: [],
       typeRepairs: [],
       completenessLevel: "incomplete" as const,
+      readiness: "NEEDS_ATTENTION" as const,
       summary: {
         blockedPatterns: 0,
         completenessErrors: nsValidation.errors.length,

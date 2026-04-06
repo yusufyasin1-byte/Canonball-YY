@@ -3,7 +3,7 @@ export type DeploymentResult = {
   name: string;
   status: "created" | "exists" | "updated" | "failed" | "skipped" | "manual" | "in_package";
   message: string;
-  id?: number;
+  id?: number | string;
   manualSteps?: string[];
 };
 

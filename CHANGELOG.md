@@ -4,6 +4,19 @@ This changelog captures the key release notes for the `Updated-code---solution-p
 
 ## 2026-04-03
 
+### `Unreleased` - Clear repo-wide TypeScript compile debt
+
+Added
+- Stronger shared type coverage for deployment results, workflow analysis categories, recursive workflow specs, and repair metadata.
+
+Changed
+- Fixed repo-wide TypeScript shape drift across catalog validation, document exports, orchestrator provisioning, pipeline results, route payloads, workflow assembly, XAML generation, quality-gate typing, and shared process-layout utilities.
+- Tightened null/undefined handling around deployment IDs and normalized newer pipeline metadata into the types expected by downstream routes.
+
+Validated
+- Repo-wide `tsc --noEmit` now passes cleanly.
+- Focused Vitest reruns were attempted afterward, but the local run environment hit a separate Windows `EPERM` path issue before test discovery, so they were not used as the validation signal for this cleanup.
+
 ### `Unreleased` - Add reusable UiPath test automation artifact generation
 
 Added

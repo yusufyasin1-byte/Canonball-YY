@@ -54,7 +54,7 @@ export interface ActivitySchema {
 }
 
 export interface ValidationCorrection {
-  type: "wrap-in-argument" | "move-to-attribute" | "move-to-child-element" | "add-missing-required" | "fix-invalid-value";
+  type: "wrap-in-argument" | "move-to-attribute" | "move-to-child-element" | "add-missing-required" | "fix-invalid-value" | "remove-attribute";
   property: string;
   detail: string;
   argumentWrapper?: string;

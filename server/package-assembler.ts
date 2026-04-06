@@ -6197,7 +6197,7 @@ ${depEntries}
       outcomeAutoRepairs.push({
         repairCode,
         file: tr.file,
-        description: tr.detail,
+        description: tr.detail || tr.repair || `Type repair applied in ${tr.file}`,
         developerAction: `Review the type repair in ${tr.file} and confirm the repaired expression or variable type is correct.`,
         estimatedEffortMinutes: 10,
       });

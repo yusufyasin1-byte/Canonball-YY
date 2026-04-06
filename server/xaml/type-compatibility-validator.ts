@@ -9,14 +9,15 @@ export interface TypeMismatchResult {
 
 export interface TypeRepairAction {
   file: string;
-  line: number;
-  activity: string;
-  property: string;
-  expectedType: string;
-  actualType: string;
-  repairKind: "conversion-wrap" | "variable-type-change" | "unrepairable";
-  boundVariable: string;
-  detail: string;
+  line?: number;
+  activity?: string;
+  property?: string;
+  expectedType?: string;
+  actualType?: string;
+  repairKind?: "conversion-wrap" | "variable-type-change" | "unrepairable";
+  boundVariable?: string;
+  detail?: string;
+  repair?: string;
 }
 
 const CLR_SHORT_TO_FULL: Record<string, string> = {

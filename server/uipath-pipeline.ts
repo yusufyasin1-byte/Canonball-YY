@@ -310,6 +310,7 @@ export interface PipelineResult {
   deliveryRecommendation?: UiPathDeliveryRecommendation;
   testCases?: UiPathTestCase[];
   testSets?: UiPathTestSet[];
+  analysisReports: Array<{ fileName: string; report: AnalysisReport }>;
   gaps: XamlGap[];
   usedPackages: string[];
   qualityGateResult?: QualityGateResult;
@@ -1487,6 +1488,7 @@ export async function compilePackageFromSpecs(
       deliveryRecommendation,
       testCases,
       testSets,
+      analysisReports: dhgResult.analysisReports,
       gaps: buildResult.gaps,
       usedPackages: buildResult.usedPackages,
       qualityGateResult: postCorrectionQualityGate || buildResult.qualityGateResult,

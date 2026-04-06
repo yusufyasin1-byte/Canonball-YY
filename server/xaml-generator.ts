@@ -1547,7 +1547,8 @@ function renderControlFlowActivity(
   const baseType = activityType.replace("System.Activities.", "");
 
   if (baseType === "If") {
-    const rawCondition = properties["Condition"] || rawProperties["Condition"] || "";
+    const rawConditionValue = properties["Condition"] ?? rawProperties["Condition"] ?? "";
+    const rawCondition = typeof rawConditionValue === "string" ? rawConditionValue : "";
     const needsConditionReview = !rawCondition || rawCondition === "TODO_Condition" || rawCondition.startsWith("TODO_") || rawCondition.startsWith("PLACEHOLDER_");
     const condition = needsConditionReview ? "True" : rawCondition;
 
@@ -1587,7 +1588,8 @@ function renderControlFlowActivity(
   }
 
   if (baseType === "Switch") {
-    const rawExpression = properties["Expression"] || rawProperties["Expression"] || "";
+    const rawExpressionValue = properties["Expression"] ?? rawProperties["Expression"] ?? "";
+    const rawExpression = typeof rawExpressionValue === "string" ? rawExpressionValue : "";
     const needsExpressionReview = !rawExpression || rawExpression === "TODO_Expression" || rawExpression.startsWith("TODO_") || rawExpression.startsWith("PLACEHOLDER_");
     const expression = needsExpressionReview ? "Nothing" : rawExpression;
     const casesProp = rawProperties["Cases"];
@@ -1627,7 +1629,8 @@ function renderControlFlowActivity(
 
   if (baseType === "ForEach") {
     let itemType = properties["TypeArgument"] || rawProperties["TypeArgument"] || "x:Object";
-    const rawValues = properties["Values"] || rawProperties["Values"] || "";
+    const rawValuesValue = properties["Values"] ?? rawProperties["Values"] ?? "";
+    const rawValues = typeof rawValuesValue === "string" ? rawValuesValue : "";
     const needsValuesReview = !rawValues || rawValues === "TODO_Collection" || rawValues.startsWith("TODO_") || rawValues.startsWith("PLACEHOLDER_");
     const values = needsValuesReview ? "New List(Of Object)" : rawValues;
     const valExpr = String(values).replace(/^\[|\]$/g, "");
@@ -4275,7 +4278,8 @@ export function generateDeveloperHandoffGuide(opts: DhgOptions): string {
         if (du.documentTypes?.length) {
           md += `- Document types needed: ${du.documentTypes.join(", ")}\n`;
         }
-        const isPredefined = duResult?.id === "00000000-0000-0000-0000-000000000000" || duResult?.message?.includes("predefined") || duResult?.message?.includes("Predefined");
+        const duResultId = typeof duResult?.id === "string" ? duResult.id : undefined;
+        const isPredefined = duResultId === "00000000-0000-0000-0000-000000000000" || duResult?.message?.includes("predefined") || duResult?.message?.includes("Predefined");
         if (isPredefined) {
           md += `- Using **Predefined** DU project (pretrained models). For custom extraction, create a new project in Document Understanding app and train custom extractors.\n`;
         }
@@ -4288,7 +4292,8 @@ export function generateDeveloperHandoffGuide(opts: DhgOptions): string {
         if (docTypesMatch) {
           md += `- Document types: ${docTypesMatch[1].trim()}\n`;
         }
-        const isPredefined = duR.id === "00000000-0000-0000-0000-000000000000" || duR.message?.includes("predefined") || duR.message?.includes("Predefined");
+        const duResultId = typeof duR.id === "string" ? duR.id : undefined;
+        const isPredefined = duResultId === "00000000-0000-0000-0000-000000000000" || duR.message?.includes("predefined") || duR.message?.includes("Predefined");
         if (isPredefined) {
           md += `- Using **Predefined** DU project (pretrained models). For custom extraction, create a new project in Document Understanding app and train custom extractors.\n`;
         }
@@ -4309,7 +4314,8 @@ export function generateDeveloperHandoffGuide(opts: DhgOptions): string {
       for (const ac of acArtifacts) {
         acIdx++;
         const acResult = acResults.find(r => r.name === ac.taskCatalog);
-        md += `| ${acIdx} | \`${ac.taskCatalog}\` | ${acResult?.status || "unknown"} | ${acResult?.id || "—"} | Assign role (${ac.assignedRole || "TBD"}), configure form fields, set SLA${ac.sla ? ` (suggested: ${ac.sla})` : ""} |\n`;
+        const assignedRole = "assignedRole" in ac ? (ac.assignedRole as string | undefined) : undefined;
+        md += `| ${acIdx} | \`${ac.taskCatalog}\` | ${acResult?.status || "unknown"} | ${acResult?.id || "—"} | Assign role (${assignedRole || "TBD"}), configure form fields, set SLA${ac.sla ? ` (suggested: ${ac.sla})` : ""} |\n`;
       }
     } else {
       for (const acR of acResults) {

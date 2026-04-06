@@ -3,7 +3,7 @@ import type { GovernancePolicy } from "./uipath-integration";
 export type AnalysisViolation = {
   ruleId: string;
   ruleName: string;
-  category: "naming" | "best-practice" | "usage" | "security";
+  category: "naming" | "best-practice" | "usage" | "security" | "maintainability" | "reliability";
   severity: "error" | "warning" | "info";
   message: string;
   location?: string;

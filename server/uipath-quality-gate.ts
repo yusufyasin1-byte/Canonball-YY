@@ -49,14 +49,15 @@ export type CompletenessLevel = "structural" | "functional" | "incomplete";
 
 export type TypeRepairAction = {
   file: string;
-  line: number;
-  activity: string;
-  property: string;
-  expectedType: string;
-  actualType: string;
-  repairKind: string;
-  boundVariable: string;
-  detail: string;
+  line?: number;
+  activity?: string;
+  property?: string;
+  expectedType?: string;
+  actualType?: string;
+  repairKind?: string;
+  boundVariable?: string;
+  detail?: string;
+  repair?: string;
 };
 
 export type PackageReadiness = "SUCCESS" | "READY_WITH_WARNINGS" | "NEEDS_ATTENTION";
