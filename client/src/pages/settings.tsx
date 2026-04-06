@@ -2244,7 +2244,7 @@ function IntegrationsTab() {
   const [step, setStep] = useState(0);
   const [showSecret, setShowSecret] = useState(false);
   const [orgName, setOrgName] = useState("");
-  const [tenantName, setTenantName] = useState("DefaultTenant");
+  const [tenantName, setTenantName] = useState("");
   const [clientId, setClientId] = useState("");
   const [clientSecret, setClientSecret] = useState("");
   const [connectionName, setConnectionName] = useState("");
@@ -2314,7 +2314,7 @@ function IntegrationsTab() {
   useEffect(() => {
     if (config?.configured && !editingConnectionId) {
       setOrgName(config.orgName || "");
-      setTenantName(config.tenantName || "DefaultTenant");
+      setTenantName(config.tenantName || "");
       setClientId(config.clientId || "");
       const scopeSet = new Set((config.scopes || "OR.Default").split(" ").filter(Boolean));
       setSelectedScopes(scopeSet);
@@ -2517,7 +2517,7 @@ function IntegrationsTab() {
     setEditingConnectionId(null);
     setConnectionName("");
     setOrgName("");
-    setTenantName("DefaultTenant");
+    setTenantName("");
     setClientId("");
     setClientSecret("");
     setSelectedScopes(new Set(["OR.Default"]));

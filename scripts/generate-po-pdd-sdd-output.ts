@@ -15,7 +15,9 @@ type Section = {
   body: string[];
 };
 
-const outputDir = path.resolve("C:/Users/yusuf.yasin/Downloads/CannonBall/simulation_output_po_invoice/docs");
+const outputDir = process.env.UIPATH_DOC_OUTPUT_DIR
+  ? path.resolve(process.env.UIPATH_DOC_OUTPUT_DIR)
+  : path.resolve(process.cwd(), "simulation_output_po_invoice", "docs");
 
 const pddSections: Section[] = [
   { heading: "## 1. Introduction", body: ["This Process Design Document defines the business process, scope, exceptions, and target automation behavior for the PO invoice validation and approval use case. It is aligned to the UiPath Automation Hub PDD structure and is intended for business, delivery, and automation stakeholders."] },

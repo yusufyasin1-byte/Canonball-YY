@@ -1,4 +1,5 @@
 import fs from "node:fs";
+import path from "node:path";
 import { getAccessToken } from "../server/uipath-auth";
 import { uploadNupkgBuffer } from "../server/package-assembler";
 import { metadataService } from "../server/catalog/metadata-service";
@@ -24,10 +25,16 @@ async function main() {
     scopes: process.env.UIPATH_SCOPES || "OR.Default",
   };
 
-  const packagePath = process.env.UIPATH_PACKAGE_PATH || "C:/Users/yusuf.yasin/Downloads/CannonBall/simulation_output_po_invoice/POInvoiceTestNew.1.0.0-sim.nupkg";
-  const projectName = process.env.UIPATH_PACKAGE_ID || "POInvoiceTestNew";
-  const version = process.env.UIPATH_PACKAGE_VERSION || "1.0.0-sim";
-  const processName = process.env.UIPATH_PROCESS_NAME || "POInvoiceTestNew";
+  const packagePath = process.env.UIPATH_PACKAGE_PATH
+    ? path.resolve(process.env.UIPATH_PACKAGE_PATH)
+    : path.resolve(process.cwd(), "simulation_output_po_invoice", "POInvoiceTestNew.1.0.0-sim.nupkg");
+  const packageBaseName = path.basename(packagePath, ".nupkg");
+  const inferredParts = packageBaseName.split(".");
+  const inferredVersion = inferredParts.length >= 3 ? inferredParts.slice(-3).join(".") : "";
+  const inferredProjectName = inferredParts.length >= 4 ? inferredParts.slice(0, -3).join(".") : packageBaseName;
+  const projectName = process.env.UIPATH_PACKAGE_ID || inferredProjectName || "POInvoiceTestNew";
+  const version = process.env.UIPATH_PACKAGE_VERSION || inferredVersion || "1.0.0-sim";
+  const processName = process.env.UIPATH_PROCESS_NAME || projectName;
 
   if (!config.orgName || !config.tenantName || !config.clientId || !config.clientSecret) {
     throw new Error("Missing required UIPATH_* auth environment variables.");

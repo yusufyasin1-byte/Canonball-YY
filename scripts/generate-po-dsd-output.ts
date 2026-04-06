@@ -15,7 +15,9 @@ type Section = {
   body: string[];
 };
 
-const outputDir = path.resolve("C:/Users/yusuf.yasin/Downloads/CannonBall/simulation_output_po_invoice/docs");
+const outputDir = process.env.UIPATH_DOC_OUTPUT_DIR
+  ? path.resolve(process.env.UIPATH_DOC_OUTPUT_DIR)
+  : path.resolve(process.cwd(), "simulation_output_po_invoice", "docs");
 const mdPath = path.join(outputDir, "POInvoiceTestNew_DSD_AutomationHub.md");
 const docxPath = path.join(outputDir, "POInvoiceTestNew_DSD_AutomationHub.docx");
 

@@ -46,8 +46,8 @@ describe("UiPath auth OR scope handling", () => {
   it("allows TM token acquisition with documented scopes even when OIDC family is missing", async () => {
     process.env.UIPATH_CLIENT_ID = "tm-client";
     process.env.UIPATH_CLIENT_SECRET = "tm-secret";
-    process.env.UIPATH_ORGANIZATION_ID = "UiPatezkzunj";
-    process.env.UIPATH_TENANT_NAME = "DefaultTenant";
+    process.env.UIPATH_ORGANIZATION_ID = "test-org";
+    process.env.UIPATH_TENANT_NAME = "test-tenant";
 
     const fetchMock = vi.fn().mockResolvedValue({
       ok: true,

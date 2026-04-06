@@ -4,6 +4,21 @@ This changelog captures the key release notes for the `Updated-code---solution-p
 
 ## 2026-04-06
 
+### `Unreleased` - Improve UiPath portability defaults and helper scripts
+
+Added
+- More portable helper-script behavior by resolving output and package paths relative to the repo or environment variables instead of a specific Windows user profile path.
+
+Changed
+- Removed the hardcoded `DefaultTenant` default from the UiPath settings UI so tenant configuration is user-driven.
+- Updated local helper scripts to derive package names, versions, and output directories from inputs/environment rather than fixed PO-specific paths.
+- Replaced real-looking tenant/org test fixture values with neutral placeholders in UiPath auth tests.
+
+Validated
+- Repo-wide `tsc --noEmit` passes cleanly.
+- Focused backend Vitest for `uipath-auth` passed.
+- Fresh PO simulation still completed successfully, with the existing known `AddQueueItem` warning unchanged.
+
 ### `Unreleased` - Add demo-ready delivery, governance, and operations summaries
 
 Added
