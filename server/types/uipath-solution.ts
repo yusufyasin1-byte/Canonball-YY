@@ -24,6 +24,21 @@ export interface UiPathConnectorRecommendation {
   usedActions?: string[];
 }
 
+export interface UiPathActivityPackageRecommendation {
+  packageName: string;
+  capabilityArea: string;
+  rationale: string;
+  referencedActivities: string[];
+}
+
+export interface UiPathPlatformOpsSummary {
+  authenticationModel: string;
+  deploymentInterfaces: string[];
+  managementSurfaces: string[];
+  fallbackStrategy: string[];
+  operationalChecks: string[];
+}
+
 export interface UiPathOperatingModelSummary {
   runtimeProfile: string;
   recommendedFolderStrategy: string;
@@ -82,6 +97,7 @@ export interface UiPathDeliveryRecommendation {
   recommendedExecutionModel: UiPathExecutionModel;
   recommendedProducts: string[];
   connectorRecommendations: UiPathConnectorRecommendation[];
+  activityPackageRecommendations: UiPathActivityPackageRecommendation[];
   rationale: string[];
   signals: {
     automationType: "rpa" | "agent" | "hybrid";
@@ -146,6 +162,7 @@ export interface UiPathSolutionManifest {
     notes: string[];
   };
   recommendation?: UiPathDeliveryRecommendation;
+  platformOps?: UiPathPlatformOpsSummary;
   operatingModel?: UiPathOperatingModelSummary;
   releaseReadiness?: UiPathReleaseReadinessSummary;
   testRelease?: UiPathTestReleaseSummary;

@@ -58,6 +58,20 @@ describe("UiPath solution builder", () => {
           usedActions: ["Send email", "Upload file"],
         },
       ],
+      activityPackageRecommendations: [
+        {
+          packageName: "UiPath.System.Activities",
+          capabilityArea: "Core workflow and file/runtime operations",
+          rationale: "Core workflow package",
+          referencedActivities: ["Core workflow runtime"],
+        },
+        {
+          packageName: "UiPath.Mail.Activities",
+          capabilityArea: "Email ingestion and notifications",
+          rationale: "Mail package",
+          referencedActivities: ["ui:SendMail"],
+        },
+      ],
       rationale: ["Multiple shared resources were found."],
       signals: {
         automationType: "hybrid",
@@ -119,6 +133,8 @@ describe("UiPath solution builder", () => {
     expect(artifact.manifest.deliveryMode).toBe("native_uis");
     expect(artifact.manifest.recommendation?.recommendedOutput).toBe("solution");
     expect(artifact.manifest.recommendation?.connectorRecommendations.map((connector) => connector.connectorName)).toContain("Microsoft 365");
+    expect(artifact.manifest.recommendation?.activityPackageRecommendations.map((pkg) => pkg.packageName)).toContain("UiPath.Mail.Activities");
+    expect(artifact.manifest.platformOps?.managementSurfaces).toContain("Test Manager");
     expect(artifact.manifest.operatingModel?.governanceArtifacts).toContain("DSD");
     expect(artifact.manifest.releaseReadiness?.score).toBeGreaterThan(70);
     expect(artifact.manifest.testRelease?.automatedCoveragePercent).toBe(100);
@@ -143,6 +159,8 @@ describe("UiPath solution builder", () => {
     expect(entryNames).toContain("InvoiceAutomation/docs/DSD.md");
     expect(entryNames).toContain("InvoiceAutomation/docs/TestCases.md");
     expect(entryNames).toContain("InvoiceAutomation/docs/TestCases.json");
+    expect(entryNames).toContain("InvoiceAutomation/docs/PlatformOperations.md");
+    expect(entryNames).toContain("InvoiceAutomation/docs/ActivityPackagePlan.md");
     expect(entryNames).toContain("InvoiceAutomation/docs/OperatingModel.md");
     expect(entryNames).toContain("InvoiceAutomation/docs/GovernancePack.md");
     expect(entryNames).toContain("InvoiceAutomation/docs/TestReleasePlan.md");
@@ -187,6 +205,14 @@ describe("UiPath solution builder", () => {
     const testCasesMarkdown = zip.readAsText("InvoiceAutomation/docs/TestCases.md");
     expect(testCasesMarkdown).toContain("TC001 - Happy path");
     expect(testCasesMarkdown).toContain("Queue item created");
+
+    const platformOperationsMarkdown = zip.readAsText("InvoiceAutomation/docs/PlatformOperations.md");
+    expect(platformOperationsMarkdown).toContain("Platform Operations Guide");
+    expect(platformOperationsMarkdown).toContain("Deployment Interfaces");
+
+    const activityPackagePlanMarkdown = zip.readAsText("InvoiceAutomation/docs/ActivityPackagePlan.md");
+    expect(activityPackagePlanMarkdown).toContain("UiPath.Mail.Activities");
+    expect(activityPackagePlanMarkdown).toContain("Referenced activities");
 
     const operatingModelMarkdown = zip.readAsText("InvoiceAutomation/docs/OperatingModel.md");
     expect(operatingModelMarkdown).toContain("Operating Model");

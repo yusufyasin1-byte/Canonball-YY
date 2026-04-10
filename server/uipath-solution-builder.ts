@@ -9,6 +9,7 @@ import type {
   UiPathExecutiveSummary,
   UiPathNativeSolutionProjectType,
   UiPathOperatingModelSummary,
+  UiPathPlatformOpsSummary,
   UiPathReportingSummary,
   UiPathReleaseReadinessSummary,
   UiPathSolutionArtifact,
@@ -126,6 +127,56 @@ function buildOperatingModelSummary(params: {
   };
 }
 
+function buildPlatformOpsSummary(params: {
+  recommendation?: UiPathDeliveryRecommendation;
+  operatingModel: UiPathOperatingModelSummary;
+  resources: UiPathSolutionResourceSummary;
+  testCaseCount: number;
+}): UiPathPlatformOpsSummary {
+  const { recommendation, operatingModel, resources, testCaseCount } = params;
+  const managementSurfaces = new Set<string>(["Orchestrator"]);
+  const deploymentInterfaces = ["Package upload API", "Native solution CLI/API flow"];
+  const fallbackStrategy = [
+    "Prefer UiPath CLI for packaging and solution operations when supported in the target environment.",
+    "Fall back to Orchestrator/Test Manager REST APIs for resource provisioning, linking, and diagnostics when CLI coverage is incomplete.",
+  ];
+  const operationalChecks = [
+    "Confirm target folder, queues, assets, buckets, and triggers before deployment.",
+    "Run Workflow Analyzer and contract-integrity gates before promoting the artifact.",
+    "Verify published package or solution version matches the generated release notes and artifact metadata.",
+  ];
+
+  if ((recommendation?.recommendedProducts || []).includes("Integration Service") || resources.integrations.length > 0) {
+    managementSurfaces.add("Integration Service");
+    operationalChecks.push("Validate Integration Service connections and connector permissions before cutover.");
+  }
+  if ((recommendation?.recommendedProducts || []).includes("Action Center")) {
+    managementSurfaces.add("Action Center");
+    operationalChecks.push("Confirm Action Center catalogs, SLAs, and reviewer permissions before launch.");
+  }
+  if ((recommendation?.recommendedProducts || []).includes("Apps") || operatingModel.apps.length > 0) {
+    managementSurfaces.add("Apps");
+    operationalChecks.push("Validate the user-facing Apps surface and routing before enabling production users.");
+  }
+  if ((recommendation?.recommendedProducts || []).includes("Data Service") || operatingModel.dataFabricEntities.length > 0) {
+    managementSurfaces.add("Data Service");
+    operationalChecks.push("Validate Data Service entities and access policies before deployment.");
+  }
+  if (testCaseCount > 0) {
+    managementSurfaces.add("Test Manager");
+    deploymentInterfaces.push("UiPath Tests publish flow");
+    operationalChecks.push("Publish the generated UiPath Tests project and verify Test Manager automation links before release.");
+  }
+
+  return {
+    authenticationModel: "External application OAuth client-credentials authentication with folder-scoped deployment targeting.",
+    deploymentInterfaces,
+    managementSurfaces: Array.from(managementSurfaces),
+    fallbackStrategy,
+    operationalChecks,
+  };
+}
+
 function renderOperatingModelMarkdown(params: {
   projectName: string;
   operatingModel: UiPathOperatingModelSummary;
@@ -163,6 +214,62 @@ function renderOperatingModelMarkdown(params: {
     operatingModel.supportModel,
     "",
   ];
+  return lines.join("\n");
+}
+
+function renderPlatformOpsMarkdown(params: {
+  projectName: string;
+  platformOps: UiPathPlatformOpsSummary;
+}): string {
+  const { projectName, platformOps } = params;
+  const lines = [
+    `# ${projectName} Platform Operations Guide`,
+    "",
+    "## Authentication Model",
+    platformOps.authenticationModel,
+    "",
+    "## Deployment Interfaces",
+    ...platformOps.deploymentInterfaces.map((item) => `- ${item}`),
+    "",
+    "## Management Surfaces",
+    ...platformOps.managementSurfaces.map((item) => `- ${item}`),
+    "",
+    "## Fallback Strategy",
+    ...platformOps.fallbackStrategy.map((item) => `- ${item}`),
+    "",
+    "## Operational Checks",
+    ...platformOps.operationalChecks.map((item) => `- ${item}`),
+    "",
+  ];
+  return lines.join("\n");
+}
+
+function renderActivityPackagePlanMarkdown(params: {
+  projectName: string;
+  recommendation?: UiPathDeliveryRecommendation;
+}): string {
+  const { projectName, recommendation } = params;
+  const packageRecommendations = recommendation?.activityPackageRecommendations || [];
+  const lines = [
+    `# ${projectName} Activity Package Plan`,
+    "",
+  ];
+
+  if (packageRecommendations.length === 0) {
+    lines.push("No explicit activity-package recommendations were inferred from the generated workflow plan.");
+    lines.push("");
+    return lines.join("\n");
+  }
+
+  for (const packageRecommendation of packageRecommendations) {
+    lines.push(`## ${packageRecommendation.packageName}`);
+    lines.push("");
+    lines.push(`- Capability area: ${packageRecommendation.capabilityArea}`);
+    lines.push(`- Rationale: ${packageRecommendation.rationale}`);
+    lines.push(`- Referenced activities: ${packageRecommendation.referencedActivities.length > 0 ? packageRecommendation.referencedActivities.join(", ") : "None explicitly identified"}`);
+    lines.push("");
+  }
+
   return lines.join("\n");
 }
 
@@ -412,6 +519,7 @@ function renderInsightsPlanMarkdown(params: {
 function buildExecutiveSummary(params: {
   projectName: string;
   recommendation?: UiPathDeliveryRecommendation;
+  platformOps: UiPathPlatformOpsSummary;
   operatingModel: UiPathOperatingModelSummary;
   releaseReadiness: UiPathReleaseReadinessSummary;
   testRelease: UiPathTestReleaseSummary;
@@ -423,6 +531,7 @@ function buildExecutiveSummary(params: {
   const {
     projectName,
     recommendation,
+    platformOps,
     operatingModel,
     releaseReadiness,
     testRelease,
@@ -439,7 +548,7 @@ function buildExecutiveSummary(params: {
     "Validate through Workflow Analyzer and contract-integrity gates",
     "Deploy through package or native solution deployment paths",
     "Test through generated Test Manager-ready test cases, sets, and executable test automation artifacts",
-    "Operate through deployment reports, operating model guidance, and KPI recommendations",
+    "Operate through deployment reports, operating model guidance, KPI recommendations, and platform operations playbooks",
   ];
 
   const keyOutputs = [
@@ -449,6 +558,7 @@ function buildExecutiveSummary(params: {
     `Release readiness scored at ${releaseReadiness.score}/100`,
     `Automated test coverage pack at ${testRelease.automatedCoveragePercent}%`,
     `Primary KPI recommendation: ${reporting.businessKpis[0]}`,
+    `Primary deployment interface: ${platformOps.deploymentInterfaces[0]}`,
   ];
 
   const deploymentStory = [
@@ -894,6 +1004,12 @@ export function buildUiPathSolutionArtifact(params: {
     orchestratorArtifacts,
     recommendation: deliveryRecommendation,
   });
+  const platformOps = buildPlatformOpsSummary({
+    recommendation: deliveryRecommendation,
+    operatingModel,
+    resources,
+    testCaseCount: testCases.length,
+  });
   const releaseReadiness = buildReleaseReadinessSummary({
     recommendation: deliveryRecommendation,
     operatingModel,
@@ -920,6 +1036,7 @@ export function buildUiPathSolutionArtifact(params: {
   const executiveSummary = buildExecutiveSummary({
     projectName,
     recommendation: deliveryRecommendation,
+    platformOps,
     operatingModel,
     releaseReadiness,
     testRelease,
@@ -982,6 +1099,18 @@ export function buildUiPathSolutionArtifact(params: {
       description: "Generated validation scenarios derived from the use case artifacts",
     });
   }
+  components.push({
+    type: "documentation",
+    name: "PlatformOperations",
+    path: `${projectFolder}/docs/PlatformOperations.md`,
+    description: "Generated platform operations guide covering auth, deploy interfaces, fallback strategy, and release checks.",
+  });
+  components.push({
+    type: "documentation",
+    name: "ActivityPackagePlan",
+    path: `${projectFolder}/docs/ActivityPackagePlan.md`,
+    description: "Generated activity-package implementation plan derived from workflow, connector, and test signals.",
+  });
   components.push({
     type: "documentation",
     name: "OperatingModel",
@@ -1074,6 +1203,7 @@ export function buildUiPathSolutionArtifact(params: {
       ],
     },
     recommendation: deliveryRecommendation,
+    platformOps,
     operatingModel,
     releaseReadiness,
     testRelease,
@@ -1130,6 +1260,14 @@ export function buildUiPathSolutionArtifact(params: {
       Buffer.from(JSON.stringify({ testCases, testSets }, null, 2), "utf8"),
     );
   }
+  zip.addFile(
+    `${projectFolder}/docs/PlatformOperations.md`,
+    Buffer.from(renderPlatformOpsMarkdown({ projectName, platformOps }), "utf8"),
+  );
+  zip.addFile(
+    `${projectFolder}/docs/ActivityPackagePlan.md`,
+    Buffer.from(renderActivityPackagePlanMarkdown({ projectName, recommendation: deliveryRecommendation }), "utf8"),
+  );
   zip.addFile(
     `${projectFolder}/docs/OperatingModel.md`,
     Buffer.from(renderOperatingModelMarkdown({ projectName, operatingModel, resources }), "utf8"),

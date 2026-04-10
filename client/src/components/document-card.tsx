@@ -524,6 +524,12 @@ interface UiPathSolutionMeta {
       rationale: string;
       usedActions?: string[];
     }>;
+    activityPackageRecommendations?: Array<{
+      packageName: string;
+      capabilityArea: string;
+      rationale: string;
+      referencedActivities: string[];
+    }>;
     rationale: string[];
     signals: {
       automationType: string;
@@ -543,6 +549,13 @@ interface UiPathSolutionMeta {
       appCount: number;
       dataFabricEntityCount: number;
     };
+  } | null;
+  platformOps?: {
+    authenticationModel: string;
+    deploymentInterfaces: string[];
+    managementSurfaces: string[];
+    fallbackStrategy: string[];
+    operationalChecks: string[];
   } | null;
   operatingModel?: {
     runtimeProfile: string;
@@ -1031,9 +1044,26 @@ export function UiPathPackageCard({ packageData, ideaId, onDeployProgress, onDep
                     Recommended connectors: <span className="font-medium text-foreground">{artifactMeta.solution.recommendation.connectorRecommendations.map((connector) => connector.connectorName).join(", ")}</span>
                   </p>
                 )}
+                {(artifactMeta.solution.recommendation.activityPackageRecommendations?.length ?? 0) > 0 && (
+                  <p>
+                    Activity packages: <span className="font-medium text-foreground">{artifactMeta.solution.recommendation.activityPackageRecommendations?.map((pkg) => pkg.packageName).join(", ")}</span>
+                  </p>
+                )}
                 {artifactMeta.solution.recommendation.rationale.map((reason, index) => (
                   <p key={index}>• {reason}</p>
                 ))}
+              </div>
+            )}
+            {artifactMeta.solution.platformOps && (
+              <div className="text-[10px] text-muted-foreground space-y-1">
+                <p>
+                  Auth model: <span className="font-medium text-foreground">{artifactMeta.solution.platformOps.authenticationModel}</span>
+                </p>
+                {artifactMeta.solution.platformOps.managementSurfaces.length > 0 && (
+                  <p>
+                    Ops surfaces: <span className="font-medium text-foreground">{artifactMeta.solution.platformOps.managementSurfaces.join(", ")}</span>
+                  </p>
+                )}
               </div>
             )}
             {artifactMeta.solution.operatingModel && (

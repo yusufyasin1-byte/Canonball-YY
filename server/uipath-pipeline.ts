@@ -1400,11 +1400,12 @@ export async function compilePackageFromSpecs(
     });
 
     const orchestratorArtifacts = enriched.internal?.orchestratorArtifacts || enriched.internal?.extractedArtifacts || {};
+    const { testCases, testSets } = extractUiPathTestDesign(orchestratorArtifacts);
     const deliveryRecommendation = recommendUiPathDelivery({
       pkg: enriched,
       orchestratorArtifacts,
+      testCaseCount: testCases.length,
     });
-    const { testCases, testSets } = extractUiPathTestDesign(orchestratorArtifacts);
 
     tracker.start("test_automation_bundle", "Building executable UiPath Tests project");
     const testAutomationArtifact = buildUiPathTestAutomationArtifact({

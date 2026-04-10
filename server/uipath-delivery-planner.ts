@@ -1,5 +1,6 @@
 import type { UiPathPackage } from "./types/uipath-package";
 import type {
+  UiPathActivityPackageRecommendation,
   UiPathConnectorRecommendation,
   UiPathDeliveryRecommendation,
   UiPathTestCase,
@@ -102,8 +103,129 @@ const CONNECTOR_INFERENCE_RULES: Array<{
   },
 ];
 
+const ACTIVITY_PACKAGE_RULES: Array<{
+  packageName: string;
+  capabilityArea: string;
+  activityPrefixes?: string[];
+  keywords?: string[];
+  dependencyAliases?: string[];
+  rationale: string;
+}> = [
+  {
+    packageName: "UiPath.System.Activities",
+    capabilityArea: "Core workflow and file/runtime operations",
+    activityPrefixes: ["ui:LogMessage", "ui:ReadTextFile", "ui:WriteTextFile", "ui:PathExists", "ui:InvokeWorkflowFile", "Assign"],
+    dependencyAliases: ["UiPath.System.Activities"],
+    rationale: "Core workflow orchestration, variables, file handling, and invoke patterns depend on the System Activities package.",
+  },
+  {
+    packageName: "UiPath.UIAutomation.Activities",
+    capabilityArea: "Desktop and browser automation",
+    activityPrefixes: ["ui:UseBrowser", "ui:UseApplication", "ui:OpenBrowser", "ui:Click", "ui:TypeInto", "ui:GetText"],
+    keywords: ["selector", "browser", "window", "desktop", "screen"],
+    dependencyAliases: ["UiPath.UIAutomation.Activities"],
+    rationale: "UI selectors and interaction patterns indicate a browser/desktop automation surface that should rely on UI Automation activities.",
+  },
+  {
+    packageName: "UiPath.Excel.Activities",
+    capabilityArea: "Excel workbook processing",
+    activityPrefixes: ["ui:UseExcel", "ui:ExcelApplicationScope"],
+    keywords: ["excel", "spreadsheet", "worksheet", "workbook"],
+    dependencyAliases: ["UiPath.Excel.Activities"],
+    rationale: "Workbook interaction signals are best implemented with the Excel activity package rather than generic file handling alone.",
+  },
+  {
+    packageName: "UiPath.Mail.Activities",
+    capabilityArea: "Email ingestion and notifications",
+    activityPrefixes: ["ui:SendMail", "ui:SendSmtpMailMessage", "ui:GetMail", "ui:GetImapMailMessage"],
+    keywords: ["email", "mail", "outlook", "gmail", "notification"],
+    dependencyAliases: ["UiPath.Mail.Activities"],
+    rationale: "Email send/read behavior is more maintainable when backed by UiPath Mail activities and their connection-aware authentication options.",
+  },
+  {
+    packageName: "UiPath.WebAPI.Activities",
+    capabilityArea: "HTTP and API orchestration",
+    activityPrefixes: ["ui:HttpClient"],
+    keywords: ["api", "http", "rest", "json", "webhook", "endpoint"],
+    dependencyAliases: ["UiPath.WebAPI.Activities"],
+    rationale: "HTTP-centric workflows should use WebAPI activities for request/response handling and reusable integration patterns.",
+  },
+  {
+    packageName: "UiPath.Testing.Activities",
+    capabilityArea: "Test automation and verification",
+    keywords: ["test", "assert", "validation", "verification"],
+    dependencyAliases: ["UiPath.Testing.Activities"],
+    rationale: "Generated validation assets and executable test workflows should include UiPath Testing activities for stable Test Manager alignment.",
+  },
+  {
+    packageName: "UiPath.IntegrationService.Activities",
+    capabilityArea: "Connector-backed SaaS integrations",
+    keywords: ["connector", "integration service"],
+    dependencyAliases: ["UiPath.IntegrationService.Activities"],
+    rationale: "Connector-backed automations should prefer Integration Service activities to avoid brittle custom API plumbing.",
+  },
+];
+
 function uniqueSorted(values: string[]): string[] {
   return Array.from(new Set(values.map((value) => safeText(value)).filter(Boolean))).sort((a, b) => a.localeCompare(b));
+}
+
+function inferActivityPackageRecommendations(params: {
+  pkg: UiPathPackage;
+  connectorRecommendations: UiPathConnectorRecommendation[];
+  testCaseCount: number;
+}): UiPathActivityPackageRecommendation[] {
+  const { pkg, connectorRecommendations, testCaseCount } = params;
+  const workflowSteps = safeArray(pkg.workflows).flatMap((workflow) => safeArray(workflow.steps));
+  const declaredDependencies = new Set(safeArray<string>(pkg.dependencies).map((dependency) => safeText(dependency)));
+  const corpus = `${safeText(pkg.projectName)} ${safeText(pkg.description)} ${flattenSignalText([
+    pkg.internal?.sddContent,
+    pkg.internal?.processNodes,
+    pkg.workflows,
+  ]).join(" ")}`.toLowerCase();
+
+  const inferred = new Map<string, UiPathActivityPackageRecommendation>();
+
+  for (const rule of ACTIVITY_PACKAGE_RULES) {
+    const referencedActivities = uniqueSorted(workflowSteps
+      .map((step) => safeText(step?.activityType || step?.activity))
+      .filter((activityType) => (rule.activityPrefixes || []).some((prefix) => activityType === prefix || activityType.startsWith(prefix))));
+
+    const hasKeywordSignal = (rule.keywords || []).some((keyword) => corpus.includes(keyword));
+    const hasDeclaredDependency = (rule.dependencyAliases || []).some((alias) => declaredDependencies.has(alias));
+    const hasConnectorSignal = rule.packageName === "UiPath.IntegrationService.Activities" && connectorRecommendations.length > 0;
+    const hasTestingSignal = rule.packageName === "UiPath.Testing.Activities" && testCaseCount > 0;
+
+    if (referencedActivities.length === 0 && !hasKeywordSignal && !hasDeclaredDependency && !hasConnectorSignal && !hasTestingSignal) {
+      continue;
+    }
+
+    inferred.set(rule.packageName, {
+      packageName: rule.packageName,
+      capabilityArea: rule.capabilityArea,
+      rationale: rule.rationale,
+      referencedActivities: referencedActivities.length > 0
+        ? referencedActivities
+        : hasConnectorSignal
+          ? connectorRecommendations.map((connector) => connector.connectorName)
+          : hasTestingSignal
+            ? ["Generated UiPath test workflows"]
+            : hasDeclaredDependency
+              ? [rule.packageName]
+              : [],
+    });
+  }
+
+  if (!inferred.has("UiPath.System.Activities")) {
+    inferred.set("UiPath.System.Activities", {
+      packageName: "UiPath.System.Activities",
+      capabilityArea: "Core workflow and file/runtime operations",
+      rationale: "Every generated UiPath automation requires the core System Activities package for baseline workflow execution.",
+      referencedActivities: ["Core workflow runtime"],
+    });
+  }
+
+  return Array.from(inferred.values()).sort((a, b) => a.packageName.localeCompare(b.packageName));
 }
 
 function inferConnectorRecommendations(pkg: UiPathPackage, orchestratorArtifacts: any): UiPathConnectorRecommendation[] {
@@ -175,6 +297,7 @@ export function extractUiPathTestDesign(orchestratorArtifacts: any): {
 export function recommendUiPathDelivery(params: {
   pkg: UiPathPackage;
   orchestratorArtifacts: any;
+  testCaseCount?: number;
 }): UiPathDeliveryRecommendation {
   const { pkg, orchestratorArtifacts } = params;
   const automationType = pkg.internal?.automationType || "rpa";
@@ -189,6 +312,11 @@ export function recommendUiPathDelivery(params: {
   const dataFabricEntityCount = safeArray(orchestratorArtifacts?.dataFabricEntities).length;
   const sharedResourceCount = queueCount + assetCount + storageBucketCount + actionCatalogCount + integrationCount;
   const connectorRecommendations = inferConnectorRecommendations(pkg, orchestratorArtifacts);
+  const activityPackageRecommendations = inferActivityPackageRecommendations({
+    pkg,
+    connectorRecommendations,
+    testCaseCount: Number(params.testCaseCount || 0),
+  });
   const signalCorpus = flattenSignalText([
     pkg.projectName,
     pkg.description,
@@ -330,6 +458,7 @@ export function recommendUiPathDelivery(params: {
     recommendedExecutionModel,
     recommendedProducts: Array.from(recommendedProducts),
     connectorRecommendations,
+    activityPackageRecommendations,
     rationale,
     signals: {
       automationType,

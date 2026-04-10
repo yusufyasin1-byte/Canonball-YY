@@ -279,6 +279,12 @@ interface UiPathPackageData {
         rationale: string;
         usedActions?: string[];
       }>;
+      activityPackageRecommendations?: Array<{
+        packageName: string;
+        capabilityArea: string;
+        rationale: string;
+        referencedActivities: string[];
+      }>;
       rationale: string[];
       signals: {
         automationType: string;
@@ -298,6 +304,13 @@ interface UiPathPackageData {
         appCount: number;
         dataFabricEntityCount: number;
       };
+    } | null;
+    platformOps?: {
+      authenticationModel: string;
+      deploymentInterfaces: string[];
+      managementSurfaces: string[];
+      fallbackStrategy: string[];
+      operationalChecks: string[];
     } | null;
     operatingModel?: {
       runtimeProfile: string;
@@ -493,9 +506,26 @@ function UiPathViewerModal({ open, onClose, ideaId }: { open: boolean; onClose: 
                             Recommended connectors: <span className="font-medium text-foreground">{packageData.solution.recommendation.connectorRecommendations.map((connector) => connector.connectorName).join(", ")}</span>
                           </p>
                         )}
+                        {(packageData.solution.recommendation.activityPackageRecommendations?.length ?? 0) > 0 && (
+                          <p>
+                            Activity packages: <span className="font-medium text-foreground">{packageData.solution.recommendation.activityPackageRecommendations?.map((pkg) => pkg.packageName).join(", ")}</span>
+                          </p>
+                        )}
                         {packageData.solution.recommendation.rationale.map((reason, index) => (
                           <p key={index}>• {reason}</p>
                         ))}
+                      </>
+                    )}
+                    {packageData.solution.platformOps && (
+                      <>
+                        <p>
+                          Auth model: <span className="font-medium text-foreground">{packageData.solution.platformOps.authenticationModel}</span>
+                        </p>
+                        {packageData.solution.platformOps.managementSurfaces.length > 0 && (
+                          <p>
+                            Ops surfaces: <span className="font-medium text-foreground">{packageData.solution.platformOps.managementSurfaces.join(", ")}</span>
+                          </p>
+                        )}
                       </>
                     )}
                     {packageData.solution.operatingModel && (

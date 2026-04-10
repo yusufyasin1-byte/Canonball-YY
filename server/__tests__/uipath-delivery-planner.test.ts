@@ -26,6 +26,7 @@ describe("UiPath delivery planner", () => {
     expect(recommendation.recommendedModality).toBe("unattended_robot");
     expect(recommendation.signals.sharedResourceCount).toBe(2);
     expect(recommendation.connectorRecommendations.map((connector) => connector.connectorName)).toContain("Coupa");
+    expect(recommendation.activityPackageRecommendations.map((pkg) => pkg.packageName)).toContain("UiPath.System.Activities");
   });
 
   it("keeps simple single-project automations as packages", () => {
@@ -172,5 +173,41 @@ describe("UiPath delivery planner", () => {
     expect(testDesign.testCases).toHaveLength(1);
     expect(testDesign.testCases[0].steps[0].expected).toBe("Accepted");
     expect(testDesign.testSets[0].testCaseNames).toEqual(["TC001 - Happy path"]);
+  });
+
+  it("infers activity packages from workflow activities, connectors, and tests", () => {
+    const pkg: UiPathPackage = {
+      projectName: "WelcomeJourney",
+      description: "Send onboarding email and call REST endpoints for joiner setup.",
+      dependencies: ["UiPath.System.Activities"],
+      workflows: [{
+        name: "Main",
+        description: "Read mailbox and send welcome email",
+        variables: [],
+        steps: [
+          { activity: "Send welcome email", activityType: "ui:SendMail", activityPackage: "UiPath.Mail.Activities", properties: {}, notes: "" },
+          { activity: "Call provisioning API", activityType: "ui:HttpClient", activityPackage: "UiPath.WebAPI.Activities", properties: {}, notes: "" },
+        ],
+      }],
+      internal: {
+        automationType: "rpa",
+      },
+    };
+
+    const recommendation = recommendUiPathDelivery({
+      pkg,
+      orchestratorArtifacts: {
+        integrationServiceConnectors: [{ connectorName: "Workday" }],
+      },
+      testCaseCount: 2,
+    });
+
+    expect(recommendation.activityPackageRecommendations.map((pkg) => pkg.packageName)).toEqual(expect.arrayContaining([
+      "UiPath.System.Activities",
+      "UiPath.Mail.Activities",
+      "UiPath.WebAPI.Activities",
+      "UiPath.IntegrationService.Activities",
+      "UiPath.Testing.Activities",
+    ]));
   });
 });
