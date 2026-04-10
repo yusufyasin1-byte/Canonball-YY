@@ -128,6 +128,7 @@ export interface UiPathTestCase {
   name: string;
   description: string;
   steps: UiPathTestCaseStep[];
+  automationWorkflow?: string;
 }
 
 export interface UiPathTestSet {
@@ -143,6 +144,12 @@ export interface UiPathTestAutomationArtifact {
   version: string;
   workflowCount: number;
   workflowFiles: string[];
+  workflowMappings: Array<{
+    testCaseName: string;
+    fileName: string;
+    className: string;
+    localTestCaseId: string;
+  }>;
   testCases: UiPathTestCase[];
   testSets: UiPathTestSet[];
 }

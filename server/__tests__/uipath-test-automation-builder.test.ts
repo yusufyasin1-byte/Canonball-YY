@@ -38,26 +38,27 @@ describe("UiPath test automation builder", () => {
     expect(artifact?.fileName).toContain("WelcomeEmailAutomation_Tests");
     expect(artifact?.workflowCount).toBe(2);
     expect(artifact?.workflowFiles).toHaveLength(2);
+    expect(artifact?.workflowMappings).toHaveLength(2);
+    expect(artifact?.workflowMappings[0].localTestCaseId).toMatch(/[0-9a-f-]{36}/i);
 
     const zip = new AdmZip(artifact!.buffer);
     const entryNames = zip.getEntries().map((entry) => entry.entryName);
 
     expect(entryNames).toContain("WelcomeEmailAutomation_Tests/project.json");
-    expect(entryNames).toContain("WelcomeEmailAutomation_Tests/README.md");
     expect(entryNames.some((entry) => entry.endsWith(".xaml"))).toBe(true);
+    expect(entryNames).toContain("WelcomeEmailAutomation_Tests/.settings/Release/settings-82ca306a.json");
+    expect(entryNames).toContain("WelcomeEmailAutomation_Tests/.settings/Release/settings-9e9290da.json");
 
     const projectJson = JSON.parse(zip.readAsText("WelcomeEmailAutomation_Tests/project.json"));
     expect(projectJson.designOptions.outputType).toBe("Tests");
     expect(projectJson.entryPoints).toHaveLength(2);
-
-    const readme = zip.readAsText("WelcomeEmailAutomation_Tests/README.md");
-    expect(readme).toContain("TC001 - Happy path");
-    expect(readme).toContain("Smoke");
+    expect(projectJson.designOptions.fileInfoCollection[0].testCaseId).toBe(artifact?.workflowMappings[0].localTestCaseId);
+    expect(projectJson.projectId).toMatch(/[0-9a-f-]{36}/i);
+    expect(projectJson.entryPoints[0].uniqueId).toBe(artifact?.workflowMappings[0].localTestCaseId);
 
     const firstWorkflow = zip.readAsText(`WelcomeEmailAutomation_Tests/${artifact!.workflowFiles[0]}`);
     expect(firstWorkflow).toContain("Verify Generated Test Placeholder");
-    expect(firstWorkflow).toContain("Test started: TC001 - Happy path");
-    expect(firstWorkflow).toContain("Action: Read today&apos;s new joiners");
+    expect(firstWorkflow).toContain("TC001 - Happy path started for WelcomeEmailAutomation");
   });
 
   it("returns null when there are no test cases", () => {

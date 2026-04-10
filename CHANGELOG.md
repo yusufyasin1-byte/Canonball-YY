@@ -4,6 +4,23 @@ This changelog captures the key release notes for the `Updated-code---solution-p
 
 ## 2026-04-06
 
+### `Unreleased` - Automate UiPath Tests package publish and public TM linking
+
+Added
+- A reusable UiPath test-automation publisher that stages generated Tests projects on a stable workspace path, packs them with `uipcli`, deploys them to Orchestrator, resolves deployed Test Case Definition identifiers, and attempts the strongest available Test Manager linkage using public APIs.
+- Studio-shaped Test Automation project metadata including explicit `projectId`, deterministic workflow-to-test-case mappings, and release settings files that better match real UiPath Tests projects.
+- Focused publisher coverage for Test Manager linkage metadata injection alongside the existing test-automation builder tests.
+
+Changed
+- Deployment provisioning now carries richer Test Manager context, including project name/prefix and per-test-case object keys, so downstream publish/link steps can run automatically after deploy.
+- UiPath routes now invoke linked test-automation publish/linking automatically whenever a generated Tests artifact and Test Manager context are both available.
+- Generated test workflows now preserve automation workflow names and local test-case identifiers consistently across `project.json`, entry points, and workflow mappings.
+
+Validated
+- Repo-wide `tsc --noEmit` passes cleanly.
+- Focused backend Vitest for `uipath-test-automation-builder` and `uipath-test-automation-publisher` passed successfully.
+- Live PO validation proved automated test package packing/deploy, Test Manager project/case/set provisioning, and 7/7 public TM link calls. The final Test Manager UI package-binding state still appears limited by the current public UiPath API surface.
+
 ### `Unreleased` - Improve UiPath portability defaults and helper scripts
 
 Added

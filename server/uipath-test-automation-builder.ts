@@ -18,8 +18,21 @@ function sanitizeSegment(value: string, fallback: string): string {
 }
 
 function makeWorkflowFileName(testCase: UiPathTestCase, index: number): string {
-  const base = sanitizeSegment(testCase.name, `TC${String(index + 1).padStart(3, "0")}`);
-  return `${base}.xaml`;
+  const explicit = String(testCase.automationWorkflow || "").trim();
+  if (explicit) {
+    return explicit.toLowerCase().endsWith(".xaml") ? explicit : `${explicit}.xaml`;
+  }
+  const fallbackBase = `TC${String(index + 1).padStart(3, "0")}`;
+  const segments = String(testCase.name || "")
+    .split(/[^A-Za-z0-9]+/)
+    .map((segment) => segment.trim())
+    .filter(Boolean);
+  if (segments.length === 0) {
+    return `${fallbackBase}.xaml`;
+  }
+  const [first, ...rest] = segments;
+  const normalized = [first, ...rest.map((segment) => `${segment.charAt(0).toUpperCase()}${segment.slice(1)}`)].join("_");
+  return `${sanitizeSegment(normalized, fallbackBase)}.xaml`;
 }
 
 function escapeXml(value: string): string {
@@ -41,10 +54,13 @@ function makeTestCaseXaml(params: {
   className: string;
   displayName: string;
   description: string;
+  projectName: string;
   steps: UiPathTestCase["steps"];
 }): string {
-  const { className, displayName, description, steps } = params;
-  const lines: string[] = [
+  const { className, displayName, projectName } = params;
+  const startedMessage = limitText(`${displayName} started for ${projectName}`);
+  const completedMessage = limitText(`${displayName} completed`);
+  return [
     `<Activity mc:Ignorable="sap sap2010" x:Class="${className}" VisualBasic.Settings="{x:Null}" sap2010:WorkflowViewState.IdRef="${className}_1" xmlns="http://schemas.microsoft.com/netfx/2009/xaml/activities" xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006" xmlns:sap="http://schemas.microsoft.com/netfx/2009/xaml/activities/presentation" xmlns:sap2010="http://schemas.microsoft.com/netfx/2010/xaml/activities/presentation" xmlns:scg="clr-namespace:System.Collections.Generic;assembly=System.Private.CoreLib" xmlns:sco="clr-namespace:System.Collections.ObjectModel;assembly=System.Private.CoreLib" xmlns:ui="http://schemas.uipath.com/workflow/activities" xmlns:uta="clr-namespace:UiPath.Testing.Activities;assembly=UiPath.Testing.Activities" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">`,
     `  <TextExpression.NamespacesForImplementation>`,
     `    <sco:Collection x:TypeArguments="x:String">`,
@@ -82,46 +98,26 @@ function makeTestCaseXaml(params: {
     `        <x:Boolean x:Key="IsExpanded">True</x:Boolean>`,
     `      </scg:Dictionary>`,
     `    </sap:WorkflowViewStateService.ViewState>`,
-    `    <ui:LogMessage DisplayName="Start ${escapeXml(className)}" sap2010:WorkflowViewState.IdRef="LogMessage_1" Level="Info" Message="[&quot;${escapeXml(limitText(`Test started: ${displayName}`))}&quot;]" />`,
-    `    <ui:CommentOut DisplayName="Scenario Description" sap2010:WorkflowViewState.IdRef="CommentOut_Description">`,
-    `      <ui:CommentOut.Body>`,
-    `        <Sequence DisplayName="${escapeXml(limitText(description || "Generated test scenario"))}" sap2010:WorkflowViewState.IdRef="Sequence_Description" />`,
-    `      </ui:CommentOut.Body>`,
-    `    </ui:CommentOut>`,
-  ];
-
-  steps.forEach((step, index) => {
-    const actionText = limitText(step.action || `Execute step ${index + 1}`);
-    const expectedText = limitText(step.expected || "Expected result not specified");
-    lines.push(
-      `    <ui:CommentOut DisplayName="Step ${index + 1}" sap2010:WorkflowViewState.IdRef="CommentOut_${index + 1}">`,
-      `      <ui:CommentOut.Body>`,
-      `        <Sequence DisplayName="${escapeXml(`Action: ${actionText} | Expected: ${expectedText}`)}" sap2010:WorkflowViewState.IdRef="Sequence_Step_${index + 1}" />`,
-      `      </ui:CommentOut.Body>`,
-      `    </ui:CommentOut>`,
-    );
-  });
-
-  lines.push(
+    `    <ui:LogMessage DisplayName="Start ${escapeXml(className)}" sap2010:WorkflowViewState.IdRef="LogMessage_1" Level="Info" Message="[&quot;${escapeXml(startedMessage)}&quot;]" />`,
     `    <uta:VerifyExpression AlternativeVerificationTitle="{x:Null}" KeepScreenshots="{x:Null}" OutputMessageFormat="{x:Null}" Result="{x:Null}" ScreenshotsPath="{x:Null}" ContinueOnFailure="False" DisplayName="Verify Generated Test Placeholder" Expression="[True]" sap2010:WorkflowViewState.IdRef="VerifyExpression_1" TakeScreenshotInCaseOfFailingAssertion="False" TakeScreenshotInCaseOfSucceedingAssertion="False" />`,
-    `    <ui:LogMessage DisplayName="End ${escapeXml(className)}" sap2010:WorkflowViewState.IdRef="LogMessage_2" Level="Info" Message="[&quot;${escapeXml(limitText(`Test completed: ${displayName}`))}&quot;]" />`,
+    `    <ui:LogMessage DisplayName="End ${escapeXml(className)}" sap2010:WorkflowViewState.IdRef="LogMessage_2" Level="Info" Message="[&quot;${escapeXml(completedMessage)}&quot;]" />`,
     `  </Sequence>`,
     `</Activity>`,
     ``,
-  );
-
-  return lines.join("\n");
+  ].join("\n");
 }
 
 function makeProjectJson(params: {
   projectName: string;
   version: string;
-  workflows: Array<{ fileName: string }>;
+  projectId: string;
+  workflows: Array<{ fileName: string; localTestCaseId: string }>;
 }): Record<string, unknown> {
-  const { projectName, version, workflows } = params;
+  const { projectName, version, projectId, workflows } = params;
   const main = workflows[0]?.fileName || "Main.xaml";
   return {
     name: projectName,
+    projectId,
     description: "Executable UiPath Test Automation project generated by CB2YY.",
     main,
     dependencies: {
@@ -150,7 +146,7 @@ function makeProjectJson(params: {
       outputType: "Tests",
       fileInfoCollection: workflows.map((workflow) => ({
         editingStatus: "Publishable",
-        testCaseId: newId(),
+        testCaseId: workflow.localTestCaseId,
         testCaseType: "TestCase",
         fileName: workflow.fileName,
       })),
@@ -159,7 +155,7 @@ function makeProjectJson(params: {
     expressionLanguage: "VisualBasic",
     entryPoints: workflows.map((workflow) => ({
       filePath: workflow.fileName,
-      uniqueId: newId(),
+      uniqueId: workflow.localTestCaseId,
       input: [],
       output: [],
     })),
@@ -168,6 +164,43 @@ function makeProjectJson(params: {
     publishData: {},
     targetFramework: "Windows",
     sourceLanguage: "VisualBasic",
+  };
+}
+
+function makeTestingSettings(): Record<string, string> {
+  return {
+    "UiPath.Testing.Activities.Generic.KeepScreenshots": "False",
+    "UiPath.Testing.Activities.Generic.ScreenshotsPath": "",
+    "UiPath.Testing.Activities.VerifyActivitiesOutputFormat.VerifyExpressionOutputFormat": "",
+    "UiPath.Testing.Activities.VerifyActivitiesOutputFormat.VerifyExpressionWithOperatorOutputFormat": "",
+    "UiPath.Testing.Activities.VerifyActivitiesOutputFormat.VerifyControlAttributeOutputFormat": "",
+    "UiPath.Testing.Activities.VerifyActivitiesOutputFormat.VerifyRangeOutputFormat": "",
+  };
+}
+
+function makeSystemSettings(): Record<string, string> {
+  return {
+    "UiPath.System.Activities.AddDataColumn.AllowDBNull": "True",
+    "UiPath.System.Activities.AddDataColumn.AutoIncrement": "False",
+    "UiPath.System.Activities.AddDataColumn.MaxLength": "100",
+    "UiPath.System.Activities.AddDataColumn.Unique": "False",
+    "UiPath.System.Activities.ReadTextFile.Encoding": "",
+    "UiPath.System.Activities.WriteTextFile.Encoding": "",
+    "UiPath.System.Activities.AppendLine.Encoding": "",
+    "UiPath.System.Activities.FilterDataTable.FilterRowsMode": "Keep",
+    "UiPath.System.Activities.InvokeWorkflowFile.Timeout": "0",
+    "UiPath.System.Activities.InvokeWorkflowFile.LogEntry": "No",
+    "UiPath.System.Activities.InvokeWorkflowFile.LogExit": "No",
+    "UiPath.System.Activities.LogMessage.Level": "Info",
+    "UiPath.System.Activities.MessageBox.Buttons": "Ok",
+    "UiPath.System.Activities.MessageBox.TopMost": "True",
+    "UiPath.System.Activities.InputDialog.TopMost": "False",
+    "UiPath.System.Activities.CustomInput.TopMost": "True",
+    "UiPath.System.Activities.OrchestratorHTTPRequest.RelativeEndpoint": "",
+    "UiPath.System.Activities.RetryScope.NumberOfRetries": "3",
+    "UiPath.System.Activities.RetryScope.RetryInterval": "5000",
+    "UiPath.System.Activities.RetryScope.LogRetriedExceptions": "False",
+    "UiPath.System.Activities.RetryScope.RetriedExceptionsLogLevel": "Trace",
   };
 }
 
@@ -188,6 +221,9 @@ function renderReadme(params: {
 
   testCases.forEach((testCase) => {
     lines.push(`- ${testCase.name}: ${testCase.description || "Generated scenario"}`);
+    if (testCase.steps.length > 0) {
+      lines.push(`  Steps: ${testCase.steps.map((step) => `${step.action} => ${step.expected}`).join(" | ")}`);
+    }
   });
 
   if (testSets.length > 0) {
@@ -200,6 +236,67 @@ function renderReadme(params: {
   return lines.join("\n");
 }
 
+function makeProjectUiproj(params: {
+  projectName: string;
+  mainFile: string;
+}): string {
+  return JSON.stringify({
+    Name: params.projectName,
+    ProjectType: "Tests",
+    Description: "Executable UiPath Test Automation project generated by CB2YY.",
+    MainFile: params.mainFile,
+  }, null, 2);
+}
+
+function makeDesignJson(): string {
+  return JSON.stringify({
+    Tags: [],
+    SeparateRuntimeDependencies: true,
+    IncludeSources: true,
+    ConnectorKeys: [],
+  }, null, 2);
+}
+
+function makePackageBindingsMetadata(): string {
+  return JSON.stringify({
+    ActivityBindings: {},
+  }, null, 2);
+}
+
+function makeConnectionsFactory(projectName: string): string {
+  return [
+    `namespace ${projectName}`,
+    `{`,
+    `}`,
+    ``,
+  ].join("\n");
+}
+
+function makeConnectionsManager(projectName: string): string {
+  return [
+    `using UiPath.CodedWorkflows;`,
+    `using System;`,
+    ``,
+    `namespace ${projectName}`,
+    `{`,
+    `    public class ConnectionsManager`,
+    `    {`,
+    `        public ConnectionsManager(ICodedWorkflowsServiceContainer resolver)`,
+    `        {`,
+    `        }`,
+    `    }`,
+    `}`,
+    ``,
+  ].join("\n");
+}
+
+function makeBindingsV2(): string {
+  return JSON.stringify({
+    version: "2.0",
+    resources: [],
+  }, null, 2);
+}
+
 export function buildUiPathTestAutomationArtifact(params: {
   projectName: string;
   version: string;
@@ -210,16 +307,21 @@ export function buildUiPathTestAutomationArtifact(params: {
   if (!testCases.length) return null;
 
   const sanitizedProjectName = `${sanitizeSegment(projectName, "UiPathProject")}_Tests`;
+  const projectId = newId();
   const workflows = testCases.map((testCase, index) => {
     const fileName = makeWorkflowFileName(testCase, index);
     const className = sanitizeSegment(fileName.replace(/\.xaml$/i, ""), `TC${String(index + 1).padStart(3, "0")}`);
+    const localTestCaseId = newId();
     return {
+      testCaseName: testCase.name,
       fileName,
       className,
+      localTestCaseId,
       content: makeTestCaseXaml({
         className,
         displayName: testCase.name,
         description: testCase.description,
+        projectName,
         steps: testCase.steps,
       }),
     };
@@ -229,11 +331,39 @@ export function buildUiPathTestAutomationArtifact(params: {
   const projectRoot = sanitizedProjectName;
   zip.addFile(
     `${projectRoot}/project.json`,
-    Buffer.from(JSON.stringify(makeProjectJson({ projectName: sanitizedProjectName, version, workflows }), null, 2), "utf8"),
+    Buffer.from(JSON.stringify(makeProjectJson({ projectName: sanitizedProjectName, version, projectId, workflows }), null, 2), "utf8"),
   );
   zip.addFile(
-    `${projectRoot}/README.md`,
-    Buffer.from(renderReadme({ projectName: sanitizedProjectName, testCases, testSets }), "utf8"),
+    `${projectRoot}/project.uiproj`,
+    Buffer.from(makeProjectUiproj({ projectName: sanitizedProjectName, mainFile: workflows[0]?.fileName || "Main.xaml" }), "utf8"),
+  );
+  zip.addFile(
+    `${projectRoot}/.project/design.json`,
+    Buffer.from(makeDesignJson(), "utf8"),
+  );
+  zip.addFile(
+    `${projectRoot}/.project/PackageBindingsMetadata.json`,
+    Buffer.from(makePackageBindingsMetadata(), "utf8"),
+  );
+  zip.addFile(
+    `${projectRoot}/.settings/Release/settings-82ca306a.json`,
+    Buffer.from(JSON.stringify(makeTestingSettings(), null, 2), "utf8"),
+  );
+  zip.addFile(
+    `${projectRoot}/.settings/Release/settings-9e9290da.json`,
+    Buffer.from(JSON.stringify(makeSystemSettings(), null, 2), "utf8"),
+  );
+  zip.addFile(
+    `${projectRoot}/.codedworkflows/ConnectionsFactory.cs`,
+    Buffer.from(makeConnectionsFactory(sanitizedProjectName), "utf8"),
+  );
+  zip.addFile(
+    `${projectRoot}/.codedworkflows/ConnectionsManager.cs`,
+    Buffer.from(makeConnectionsManager(sanitizedProjectName), "utf8"),
+  );
+  zip.addFile(
+    `${projectRoot}/.local/content/bindings_v2.json`,
+    Buffer.from(makeBindingsV2(), "utf8"),
   );
 
   workflows.forEach((workflow) => {
@@ -247,6 +377,12 @@ export function buildUiPathTestAutomationArtifact(params: {
     version,
     workflowCount: workflows.length,
     workflowFiles: workflows.map((workflow) => workflow.fileName),
+    workflowMappings: workflows.map((workflow) => ({
+      testCaseName: workflow.testCaseName,
+      fileName: workflow.fileName,
+      className: workflow.className,
+      localTestCaseId: workflow.localTestCaseId,
+    })),
     testCases,
     testSets,
   };

@@ -2192,7 +2192,10 @@ async function provisionCommunicationsMining(
 type TestCaseProvisionResult = {
   results: DeploymentResult[];
   testCaseMap: Record<string, string | number>;
+  testCaseLinks: Record<string, { id: string | number; objKey: string | null }>;
   projectId: string | number | null;
+  projectName: string | null;
+  projectPrefix: string | null;
   activeTmBase: string | null;
   tmHdrs: Record<string, string>;
 };
@@ -2205,10 +2208,20 @@ async function provisionTestCases(
   testDataQueues?: OrchestratorArtifacts["testDataQueues"],
   folderId?: string
 ): Promise<TestCaseProvisionResult> {
-  const emptyResult: TestCaseProvisionResult = { results: [], testCaseMap: {}, projectId: null, activeTmBase: null, tmHdrs: {} };
+  const emptyResult: TestCaseProvisionResult = {
+    results: [],
+    testCaseMap: {},
+    testCaseLinks: {},
+    projectId: null,
+    projectName: null,
+    projectPrefix: null,
+    activeTmBase: null,
+    tmHdrs: {},
+  };
   if (!testCases?.length && !testDataQueues?.length) return emptyResult;
   const results: DeploymentResult[] = [];
   const testCaseMap: Record<string, string | number> = {};
+  const testCaseLinks: Record<string, { id: string | number; objKey: string | null }> = {};
 
   invalidateTmToken();
   let tmToken: string;
@@ -2223,7 +2236,10 @@ async function provisionTestCases(
         message: `Could not acquire token with TM scopes: ${err.message}. Ensure TM.* scopes are granted in the UiPath External Application.`,
       }],
       testCaseMap: {},
+      testCaseLinks: {},
       projectId: null,
+      projectName: null,
+      projectPrefix: null,
       activeTmBase: null,
       tmHdrs: {},
     };
@@ -2238,6 +2254,7 @@ async function provisionTestCases(
 
   let activeTmBase: string | null = null;
   let projectId: string | number | null = null;
+  let projectName: string | null = null;
   let projectPrefix: string | null = null;
 
   for (const tmBase of tmBases) {
@@ -2282,6 +2299,7 @@ async function provisionTestCases(
             }
             if (match) {
               projectId = match.Id || match.id;
+              projectName = match.Name || match.name || processName.replace(/_/g, " ");
               projectPrefix = match.Prefix || match.prefix || match.ProjectPrefix || match.projectPrefix || null;
               console.log(`[UiPath Deploy] Match found: project "${match.Name || match.name}" (ID: ${projectId}) — reusing existing project`);
               results.push({ artifact: "Test Project", name: match.Name || match.name, status: "exists", message: `Using existing project "${match.Name || match.name}" (ID: ${projectId}, Prefix: ${projectPrefix})`, id: projectId ?? undefined });
@@ -2309,7 +2327,10 @@ async function provisionTestCases(
         message: `Test Manager not available on this tenant. Test Manager requires an Enterprise license or the service may not be enabled.`,
       }],
       testCaseMap: {},
+      testCaseLinks: {},
       projectId: null,
+      projectName: null,
+      projectPrefix: null,
       activeTmBase: null,
       tmHdrs: {},
     };
@@ -2318,6 +2339,7 @@ async function provisionTestCases(
   if (!projectId) {
     try {
       const projName = processName.replace(/_/g, " ");
+      projectName = projName;
       const prefix = processName.replace(/[^A-Za-z0-9]/g, "").slice(0, 10).toUpperCase() || "AUTO";
       const projBody = { name: projName, projectPrefix: prefix, description: truncDesc(`Test project for ${processName}`) };
       let createProjResult = await uipathFetch(`${activeTmBase}/api/v2/Projects`, {
@@ -2344,6 +2366,7 @@ async function provisionTestCases(
         console.log(`[UiPath Deploy] TM Create isValidCreation result: valid=${creation.valid}, hasId=${!!(creation.data?.Id || creation.data?.id)}, error=${creation.error || "none"}`);
         if (creation.valid && (creation.data?.Id || creation.data?.id)) {
           projectId = creation.data.Id || creation.data.id;
+          projectName = projName;
           projectPrefix = creation.data.Prefix || creation.data.prefix || creation.data.ProjectPrefix || creation.data.projectPrefix || prefix;
 
           let projectVerified = false;
@@ -2419,6 +2442,7 @@ async function provisionTestCases(
 
             if (match) {
               projectId = match.Id || match.id;
+              projectName = match.Name || match.name || projName;
               projectPrefix = match.Prefix || match.prefix || match.ProjectPrefix || match.projectPrefix || null;
               results.push({ artifact: "Test Project", name: match.Name || match.name, status: "exists", message: `Project exists (ID: ${projectId}, Prefix: ${projectPrefix})`, id: projectId ?? undefined });
             } else {
@@ -2451,6 +2475,7 @@ async function provisionTestCases(
               console.log(`[UiPath Deploy] TM Prefix retry isValidCreation result: valid=${retryCreation.valid}, hasId=${!!(retryCreation.data?.Id || retryCreation.data?.id)}, error=${retryCreation.error || "none"}`);
               if (retryCreation.valid && (retryCreation.data?.Id || retryCreation.data?.id)) {
                 projectId = retryCreation.data.Id || retryCreation.data.id;
+                projectName = projName;
                 projectPrefix = retryCreation.data.Prefix || retryCreation.data.prefix || retryCreation.data.ProjectPrefix || retryCreation.data.projectPrefix || retryPrefix;
                 results.push({ artifact: "Test Project", name: projName, status: "created", message: `Created test project "${projName}" (ID: ${projectId}, Prefix: ${projectPrefix}) after prefix-collision retry`, id: projectId ?? undefined });
               }
@@ -2509,7 +2534,10 @@ async function provisionTestCases(
         })),
       ],
       testCaseMap: {},
+      testCaseLinks: {},
       projectId: null,
+      projectName,
+      projectPrefix,
       activeTmBase,
       tmHdrs,
     };
@@ -2530,17 +2558,24 @@ async function provisionTestCases(
 
     let swaggerProbed = false;
 
-    let existingTestCases: Array<{ id: string | number; name: string }> = [];
+    let existingTestCases: Array<{ id: string | number; name: string; objKey: string | null }> = [];
     try {
       const listRes = await uipathFetch(`${activeTmBase}/api/v2/${projectId}/testcases?$top=200`, {
         headers: tmHdrsWithTenant, label: "TM List TestCases", maxRetries: 1, redirect: "manual" as any,
       });
       if (listRes.ok && listRes.data) {
         const items = listRes.data?.data || listRes.data?.value || listRes.data?.items || [];
-        existingTestCases = items.map((tc: any) => ({ id: tc.Id || tc.id, name: tc.Name || tc.name })).filter((tc: any) => tc.id && tc.name);
+        existingTestCases = items
+          .map((tc: any) => ({
+            id: tc.Id || tc.id,
+            name: tc.Name || tc.name,
+            objKey: tc.ObjKey || tc.objKey || tc.Key || tc.key || (projectPrefix ? `${projectPrefix}:${tc.Id || tc.id}` : null),
+          }))
+          .filter((tc: any) => tc.id && tc.name);
         console.log(`[UiPath Deploy] Found ${existingTestCases.length} existing test cases in project ${projectId}`);
         for (const etc of existingTestCases) {
           testCaseMap[etc.name] = etc.id;
+          testCaseLinks[etc.name] = { id: etc.id, objKey: etc.objKey };
         }
       }
     } catch (err: any) {
@@ -2551,6 +2586,7 @@ async function provisionTestCases(
       const existingMatch = existingTestCases.find(e => e.name.toLowerCase() === tc.name.toLowerCase());
       if (existingMatch) {
         testCaseMap[tc.name] = existingMatch.id;
+        testCaseLinks[tc.name] = { id: existingMatch.id, objKey: existingMatch.objKey };
         results.push({ artifact: "Test Case", name: tc.name, status: "exists", message: `Already exists (ID: ${existingMatch.id})`, id: typeof existingMatch.id === "number" ? existingMatch.id : undefined });
         continue;
       }
@@ -2697,7 +2733,8 @@ async function provisionTestCases(
                 continue;
               }
               const createdId = creation.data?.Id || creation.data?.id;
-              const key = creation.data?.Key || creation.data?.key || (projectPrefix ? `${projectPrefix}-${createdId}` : null);
+              const key = creation.data?.Key || creation.data?.key || null;
+              const objKey = creation.data?.ObjKey || creation.data?.objKey || key || (projectPrefix && createdId ? `${projectPrefix}:${createdId}` : null);
               let msg = `Created via ${attempt.label} (ID: ${createdId}${key ? `, Key: ${key}` : ""})`;
               if (tc.labels?.length) msg += `, labels: ${tc.labels.join(", ")}`;
 
@@ -2744,7 +2781,10 @@ async function provisionTestCases(
               }
 
               results.push({ artifact: "Test Case", name: tc.name, status: "created", message: msg, id: createdId });
-              if (createdId) testCaseMap[tc.name] = createdId;
+              if (createdId) {
+                testCaseMap[tc.name] = createdId;
+                testCaseLinks[tc.name] = { id: createdId, objKey };
+              }
               created = true;
               break;
             } else if (tcResult.status === 409 || tcResult.text.includes("already exists")) {
@@ -2897,7 +2937,7 @@ async function provisionTestCases(
     }
   }
 
-  return { results, testCaseMap, projectId, activeTmBase, tmHdrs };
+  return { results, testCaseMap, testCaseLinks, projectId, projectName, projectPrefix, activeTmBase, tmHdrs };
 }
 
 async function provisionRequirements(
@@ -4057,6 +4097,13 @@ export async function deployAllArtifacts(
   results: DeploymentResult[];
   summary: string;
   serviceLimitations?: Array<{ service: string; status: "limited" | "unavailable" | "unknown"; reason: string }>;
+  testManagerContext?: {
+    projectId: string;
+    projectName: string;
+    projectPrefix: string | null;
+    activeTmBase: string;
+    testCases: Array<{ name: string; id: string; objKey: string | null }>;
+  };
 }> {
   const config = await getUiPathConfig();
   if (!config) {
@@ -4387,7 +4434,26 @@ export async function deployAllArtifacts(
       }
     }
 
-    return { results: allResults, summary, serviceLimitations: serviceLimitations.length > 0 ? serviceLimitations : undefined };
+    const testManagerContext = testProvision.activeTmBase && testProvision.projectId
+      ? {
+          projectId: String(testProvision.projectId),
+          projectName: testProvision.projectName || releaseName || "Automation",
+          projectPrefix: testProvision.projectPrefix,
+          activeTmBase: testProvision.activeTmBase,
+          testCases: Object.entries(testProvision.testCaseLinks).map(([name, link]) => ({
+            name,
+            id: String(link.id),
+            objKey: link.objKey,
+          })),
+        }
+      : undefined;
+
+    return {
+      results: allResults,
+      summary,
+      serviceLimitations: serviceLimitations.length > 0 ? serviceLimitations : undefined,
+      testManagerContext,
+    };
   } catch (err: any) {
     console.error(`[UiPath Deploy] Fatal error:`, err.message);
     return { results: allResults, summary: `Deployment failed: ${err.message}` };

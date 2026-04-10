@@ -37,6 +37,7 @@ import {
   uploadUiPathNativeSolutionPackage,
   validateUiPathSolutionFolderResources,
 } from "./uipath-solution-cli";
+import { publishLinkedUiPathTestAutomationArtifact } from "./uipath-test-automation-publisher";
 
 function extractOrgSlug(input: string): string {
   let val = input.trim();
@@ -111,6 +112,53 @@ function getWorkflowAnalyzerGateFailure(prebuiltResult: any): {
       contractSummary ? "\n**Contract Integrity**\n" + contractSummary : "",
     ].filter(Boolean).join("\n"),
   };
+}
+
+async function publishLinkedTestAutomationIfAvailable(params: {
+  cachedPipeline: ReturnType<typeof getCachedPipelineResult> | null;
+  deployArtifactsResult: Awaited<ReturnType<typeof deployAllArtifacts>>;
+  packageProjectName: string;
+  sendEvent: (event: Record<string, unknown>) => void;
+}) {
+  const { cachedPipeline, deployArtifactsResult, packageProjectName, sendEvent } = params;
+  const artifact = cachedPipeline?.testAutomationArtifact;
+  const tmContext = deployArtifactsResult.testManagerContext;
+  if (!artifact || !tmContext?.projectId || !tmContext.activeTmBase) {
+    return null;
+  }
+
+  const tmLinks = artifact.workflowMappings
+    .map((workflow) => {
+      const match = tmContext.testCases.find((testCase) => testCase.name.toLowerCase() === workflow.testCaseName.toLowerCase());
+      if (!match?.objKey) return null;
+      return {
+        testCaseName: workflow.testCaseName,
+        tmTestCaseId: match.id,
+        tmObjKey: match.objKey,
+      };
+    })
+    .filter((link): link is NonNullable<typeof link> => !!link);
+
+  if (tmLinks.length === 0) {
+    return {
+      linkedCount: 0,
+      totalLinksExpected: artifact.workflowMappings.length,
+      skipped: true,
+      reason: "No Test Manager object keys were available for the generated test cases.",
+    };
+  }
+
+  sendEvent({ deployStatus: "Packing linked UiPath Tests project..." });
+  const publishResult = await publishLinkedUiPathTestAutomationArtifact({
+    artifact,
+    tmProjectId: tmContext.projectId,
+    tmProjectName: tmContext.projectName || packageProjectName,
+    testManagerBasePath: tmContext.activeTmBase,
+    links: tmLinks,
+  });
+
+  sendEvent({ deployStatus: `Linked ${publishResult.linkedCount}/${publishResult.totalLinksExpected} automated test workflow(s)` });
+  return publishResult;
 }
 
 let migrationDone = false;
@@ -927,6 +975,7 @@ export function registerUiPathRoutes(app: Express): void {
           let testManagerResults: any[] = [];
           let testManagerSummary = "";
           let testManagerServiceLimitations: Array<{ service: string; status: "limited" | "unavailable" | "unknown"; reason: string }> | undefined;
+          let linkedTestAutomation: any;
           const sdd = await documentStorage.getDocument(sddApprovalCheck.documentId);
           if (sdd?.content) {
             let extractedArtifacts = parseArtifactsFromSDD(sdd.content);
@@ -948,6 +997,23 @@ export function registerUiPathRoutes(app: Express): void {
               testManagerResults = tmProvision.results;
               testManagerSummary = tmProvision.summary;
               testManagerServiceLimitations = tmProvision.serviceLimitations;
+              linkedTestAutomation = await publishLinkedTestAutomationIfAvailable({
+                cachedPipeline,
+                deployArtifactsResult: tmProvision,
+                packageProjectName: pkg.projectName,
+                sendEvent,
+              }).catch((err: any) => ({
+                error: err?.message || String(err),
+              }));
+              if (linkedTestAutomation) {
+                testManagerSummary = testManagerSummary
+                  ? `${testManagerSummary}\nLinked automated tests: ${
+                      "linkedCount" in linkedTestAutomation ? linkedTestAutomation.linkedCount : 0
+                    }/${
+                      "totalLinksExpected" in linkedTestAutomation ? linkedTestAutomation.totalLinksExpected : 0
+                    }`
+                  : testManagerSummary;
+              }
             }
           }
 
@@ -967,6 +1033,7 @@ export function registerUiPathRoutes(app: Express): void {
               validation,
               testManagerResults: testManagerResults.length > 0 ? testManagerResults : undefined,
               testManagerSummary: testManagerSummary || undefined,
+              linkedTestAutomation: linkedTestAutomation || undefined,
               testManagerServiceLimitations,
             },
           };
@@ -1107,6 +1174,14 @@ export function registerUiPathRoutes(app: Express): void {
             const deployResult = await deployAllArtifacts(reconciledArtifacts, releaseId, releaseKey, releaseName, (step) => {
               sendEvent({ deployStatus: step });
             }, prebuiltResult?.referencedMLSkillNames);
+            const linkedTestAutomation = await publishLinkedTestAutomationIfAvailable({
+              cachedPipeline,
+              deployArtifactsResult: deployResult,
+              packageProjectName: pkg.projectName,
+              sendEvent,
+            }).catch((err: any) => ({
+              error: err?.message || String(err),
+            }));
 
             const reconciliationActions = reconciliation.actions;
             const removedArtifacts = reconciliationActions
@@ -1135,6 +1210,7 @@ export function registerUiPathRoutes(app: Express): void {
               deploymentSummary: deployResult.summary + (reconSummaryText ? "\n\n" + reconSummaryText : ""),
               reconciliationActions: reconciliationActions.length > 0 ? reconciliationActions : undefined,
               serviceLimitations: deployResult.serviceLimitations ?? undefined,
+              linkedTestAutomation: linkedTestAutomation || undefined,
             };
           }
         }
